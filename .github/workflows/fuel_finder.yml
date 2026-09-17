@@ -2,8 +2,8 @@ name: UK Fuel Price Aggregator
 
 on:
   schedule:
-    # Run every 2 hours
-    - cron: '0 */2 * * *'
+    # Run once a day at 06:00 UTC
+    - cron: '0 6 * * *'
   workflow_dispatch:
     inputs:
       full_refresh:

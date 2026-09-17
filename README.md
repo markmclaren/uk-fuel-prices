@@ -74,7 +74,7 @@ Stations are classified into four visual tiers:
 - 🗺️ **Interactive Vector Map**: Powered by MapLibre GL JS and OpenFreeMap dark tiles with dynamic radius circle overlays.
 - ⚡ **GitHub Pages Ready**: The web app in `/docs` auto-loads `prices_latest.json` on startup.
 - 🐍 **Zero External Dependencies**: `uff.py` uses 100% standard library modules (`urllib`, `json`, `fcntl`) with no `pip install` required.
-- ⚙️ **Automated GitHub Actions**: Scheduled workflow runs every 2 hours to pull fresh prices from the UK Government Fuel Finder API.
+- ⚙️ **Automated GitHub Actions**: Scheduled workflow runs daily to pull fresh prices from the UK Government Fuel Finder API.
 - 📊 **Table & Map Integration**: Instant search filtering, distance radius sliders, Costco/Motorway exclusion toggles, and geolocation support.
 
 ---
@@ -94,7 +94,7 @@ Add your UK Fuel Finder API credentials to GitHub Secrets:
 - `UFF_CLIENT_ID`
 - `UFF_CLIENT_SECRET`
 
-The GitHub Actions workflow in `.github/workflows/fuel_finder.yml` will automatically fetch data, update local state caches, and write minified JSON output to `docs/prices_latest.json` every 2 hours.
+The GitHub Actions workflow in `.github/workflows/fuel_finder.yml` will automatically fetch data, update local state caches, and write minified JSON output to `docs/prices_latest.json` once a day.
 
 ---
 
