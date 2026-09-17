@@ -41,6 +41,7 @@ jobs:
         env:
           UFF_CLIENT_ID: ${{ secrets.UFF_CLIENT_ID }}
           UFF_CLIENT_SECRET: ${{ secrets.UFF_CLIENT_SECRET }}
+          UFF_BASE_URL: ${{ secrets.UFF_BASE_URL }}
           UFF_CONFIG_DIR: config/.storage/uk_fuel_finder
           UFF_OUTPUT_DIR: docs
         run: |

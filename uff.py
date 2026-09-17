@@ -37,6 +37,7 @@ BASE_URL = "https://www.fuel-finder.service.gov.uk"
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 DEFAULTS = {
+    "base_url": "https://www.fuel-finder.service.gov.uk",
     "config_dir": "/config/.storage/uk_fuel_finder",
     "stations_baseline_days": 7,
     "stations_incremental_hours": 12,
@@ -176,16 +177,24 @@ def request_with_retry(
                 return HTTPResponse(resp.status, resp.read())
         except urllib.error.HTTPError as e:
             body = e.read()
-            body_text = body.decode("utf-8", errors="replace")
+            body_text = body.decode("utf-8", errors="replace").strip()
             resp_obj = HTTPResponse(e.code, body)
             if e.code in (401, 403):
-                raise AuthError(f"Auth HTTP {e.code}: {body_text}", response=resp_obj)
+                if not body_text:
+                    if e.code == 403:
+                        msg = "Auth HTTP 403 Forbidden: Request blocked by CloudFront WAF (likely UK geoblocking or IP restriction on non-UK GitHub runner)"
+                    else:
+                        msg = "Auth HTTP 401 Unauthorized: Invalid credentials or missing access token"
+                else:
+                    msg = f"Auth HTTP {e.code}: {body_text}"
+                raise AuthError(msg, response=resp_obj)
             if e.code == 404:
                 raise HTTPError("HTTP 404 Not Found", response=resp_obj)
             if e.code in RETRYABLE_STATUS:
-                last_exc = HTTPError(f"Retryable HTTP {e.code}: {body_text}", response=resp_obj)
+                last_exc = HTTPError(f"Retryable HTTP {e.code}: {body_text or 'No response body'}", response=resp_obj)
             else:
-                raise HTTPError(f"HTTP {e.code}: {body_text}", response=resp_obj)
+                last_msg = f"HTTP {e.code}: {body_text}" if body_text else f"HTTP {e.code}"
+                raise HTTPError(last_msg, response=resp_obj)
         except Exception as e:
             last_exc = e
 
@@ -225,7 +234,12 @@ def save_json(path: Path, data: dict[str, Any]) -> None:
 
 
 def get_access_token(
-    paths: Paths, client_id: str, client_secret: str, *, force_refresh: bool = False
+    paths: Paths,
+    client_id: str,
+    client_secret: str,
+    *,
+    base_url: str = DEFAULTS["base_url"],
+    force_refresh: bool = False,
 ) -> str:
     """Obtain a valid OAuth access token, caching token until near expiry."""
     token = load_json(paths.token_file) or {}
@@ -237,7 +251,7 @@ def get_access_token(
         return access
 
     debug_print("OAuth: generating new access_token")
-    url = f"{BASE_URL}/api/v1/oauth/generate_access_token"
+    url = f"{base_url.rstrip('/')}/api/v1/oauth/generate_access_token"
     payload = {"client_id": client_id, "client_secret": client_secret}
     resp = request_with_retry("POST", url, headers={"accept": "application/json"}, json_body=payload)
     data = resp.json()
@@ -264,6 +278,7 @@ def fetch_all_batches(
     token: str,
     path: str,
     *,
+    base_url: str = DEFAULTS["base_url"],
     params: dict[str, str] | None = None,
     batch_sleep: float = DEFAULTS["batch_sleep_seconds"],
     refresh_token_fn: Any | None = None,
@@ -278,7 +293,7 @@ def fetch_all_batches(
 
     while True:
         qp = {**base_params, "batch-number": str(batch)}
-        url = f"{BASE_URL}{path}"
+        url = f"{base_url.rstrip('/')}{path}"
         try:
             resp = request_with_retry("GET", url, headers=headers, params=qp)
         except AuthError:
@@ -425,6 +440,7 @@ def ensure_cache(
     client_id: str,
     client_secret: str,
     full_refresh: bool,
+    base_url: str = DEFAULTS["base_url"],
     prices_refresh: bool = False,
     stations_baseline_days: int,
     stations_incremental_hours: int,
@@ -441,10 +457,10 @@ def ensure_cache(
                 paths.state_file.unlink()
 
         state = load_state(paths)
-        token = get_access_token(paths, client_id, client_secret)
+        token = get_access_token(paths, client_id, client_secret, base_url=base_url)
 
         def force_refresh_access_token() -> str:
-            return get_access_token(paths, client_id, client_secret, force_refresh=True)
+            return get_access_token(paths, client_id, client_secret, base_url=base_url, force_refresh=True)
 
         did_stations_baseline = False
 
@@ -452,7 +468,7 @@ def ensure_cache(
         if _needs_refresh(state["meta"].get("stations_baseline_at"), timedelta(days=stations_baseline_days)):
             debug_print("Stations: baseline refresh required")
             items = fetch_all_batches(
-                token, "/api/v1/pfs", refresh_token_fn=force_refresh_access_token, batch_sleep=batch_sleep_seconds
+                token, "/api/v1/pfs", base_url=base_url, refresh_token_fn=force_refresh_access_token, batch_sleep=batch_sleep_seconds
             )
             state["stations"] = stations_to_dict(items)
             now = iso_utc(utc_now())
@@ -464,7 +480,7 @@ def ensure_cache(
             safe = last - timedelta(minutes=DEFAULTS["incremental_safety_minutes"])
             params = {"effective-start-timestamp": safe.strftime("%Y-%m-%d %H:%M:%S")}
             items = fetch_all_batches(
-                token, "/api/v1/pfs", params=params, refresh_token_fn=force_refresh_access_token, batch_sleep=batch_sleep_seconds
+                token, "/api/v1/pfs", base_url=base_url, params=params, refresh_token_fn=force_refresh_access_token, batch_sleep=batch_sleep_seconds
             )
             if items:
                 state["stations"].update(stations_to_dict(items))
@@ -480,7 +496,7 @@ def ensure_cache(
         if needs_p_base:
             debug_print("Prices: baseline refresh required")
             items = fetch_all_batches(
-                token, "/api/v1/pfs/fuel-prices", refresh_token_fn=force_refresh_access_token, batch_sleep=batch_sleep_seconds
+                token, "/api/v1/pfs/fuel-prices", base_url=base_url, refresh_token_fn=force_refresh_access_token, batch_sleep=batch_sleep_seconds
             )
             prices, max_plu = prices_to_dict(items)
             station_count = len(state.get("stations") or {})
@@ -506,7 +522,7 @@ def ensure_cache(
             safe = last - timedelta(minutes=DEFAULTS["incremental_safety_minutes"])
             params = {"effective-start-timestamp": safe.strftime("%Y-%m-%d %H:%M:%S")}
             items = fetch_all_batches(
-                token, "/api/v1/pfs/fuel-prices", params=params, refresh_token_fn=force_refresh_access_token, batch_sleep=batch_sleep_seconds
+                token, "/api/v1/pfs/fuel-prices", base_url=base_url, params=params, refresh_token_fn=force_refresh_access_token, batch_sleep=batch_sleep_seconds
             )
             if items:
                 upd, max_plu = prices_to_dict(items)
@@ -529,6 +545,7 @@ def ensure_cache(
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="UK Fuel Finder API Data Collector & Dumper")
+    p.add_argument("--base-url", default=None, help="Base API URL or proxy endpoint (e.g. Cloudflare Worker)")
     p.add_argument("--config-dir", default=None, help="Working directory for config and cache files")
     p.add_argument("--output-dir", default=None, help="Target directory for exported prices JSON files (e.g. docs)")
     p.add_argument("--debug", action="store_true", help="Enable debug logging to stderr")
@@ -612,6 +629,13 @@ def main(argv: list[str] | None = None) -> int:
     if isinstance(cfg_file, dict):
         cfg.update(cfg_file)
 
+    base_url = (
+        args.base_url
+        or cfg.get("base_url")
+        or os.environ.get("UFF_BASE_URL")
+        or DEFAULTS["base_url"]
+    ).rstrip("/")
+
     client_id = args.client_id or cfg.get("client_id") or os.environ.get("UFF_CLIENT_ID")
     client_secret = args.client_secret or cfg.get("client_secret") or os.environ.get("UFF_CLIENT_SECRET")
 
@@ -627,6 +651,7 @@ def main(argv: list[str] | None = None) -> int:
             paths=paths,
             client_id=client_id,
             client_secret=client_secret,
+            base_url=base_url,
             full_refresh=args.full_refresh,
             prices_refresh=args.prices_refresh,
             stations_baseline_days=int(cfg.get("stations_baseline_days", DEFAULTS["stations_baseline_days"])),

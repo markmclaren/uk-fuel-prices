@@ -103,11 +103,43 @@ Stations are classified into four visual tiers based on net savings ($\Delta S$ 
 
 ### 🔄 Automated Data Updates (GitHub Actions)
 
-Add your UK Fuel Finder API credentials to GitHub Secrets:
-- `UFF_CLIENT_ID`
-- `UFF_CLIENT_SECRET`
+Add your UK Fuel Finder API credentials to **Repository Settings → Secrets and variables → Actions**:
+- `UFF_CLIENT_ID`: Your API Client ID.
+- `UFF_CLIENT_SECRET`: Your API Client Secret.
+- `UFF_BASE_URL` *(Optional)*: Base URL for an API proxy (e.g. `https://uk-fuel-proxy.your-name.workers.dev`).
 
-The GitHub Actions workflow in `.github/workflows/fuel_finder.yml` will automatically fetch data, update local state caches, and write minified JSON output to `docs/prices_latest.json` once a day.
+The GitHub Actions workflow in `.github/workflows/fuel_finder.yml` automatically fetches data, updates local state caches, and writes minified JSON output to `docs/prices_latest.json` daily at 06:00 UTC.
+
+---
+
+### 🌐 Bypassing Non-UK Geoblocking (Cloudflare Worker Proxy)
+
+The UK Government Fuel Finder API (`www.fuel-finder.service.gov.uk`) enforces AWS CloudFront WAF geoblocking, which returns `403 Forbidden` to requests originating from US-hosted GitHub Actions runners (`ubuntu-latest`).
+
+To route workflow traffic through a 100% free edge proxy:
+
+1. Log into [Cloudflare Dashboard](https://dash.cloudflare.com/) and navigate to **Workers & Pages > Create Worker**.
+2. Name your worker (e.g. `uk-fuel-proxy`) and deploy the following script:
+
+```javascript
+export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+    url.hostname = "www.fuel-finder.service.gov.uk";
+
+    const modifiedRequest = new Request(url, {
+      method: request.method,
+      headers: request.headers,
+      body: request.body,
+    });
+
+    return fetch(modifiedRequest);
+  }
+};
+```
+
+3. Copy your Worker URL (e.g. `https://uk-fuel-proxy.your-subdomain.workers.dev`).
+4. Add it to GitHub Repository Secrets as `UFF_BASE_URL`.
 
 ---
 
@@ -116,8 +148,22 @@ The GitHub Actions workflow in `.github/workflows/fuel_finder.yml` will automati
 ### Running the Python Collector
 
 ```bash
+# Standard run (uses default API endpoint)
 python3 uff.py --debug --dump --compact --output-dir docs
+
+# Run using a custom proxy endpoint
+python3 uff.py --base-url https://uk-fuel-proxy.your-subdomain.workers.dev --debug --dump --compact
 ```
+
+### Environment Variables
+
+| Variable | Description | Default |
+|---|---|---|
+| `UFF_CLIENT_ID` | OAuth Client ID | `None` |
+| `UFF_CLIENT_SECRET` | OAuth Client Secret | `None` |
+| `UFF_BASE_URL` | Base API Endpoint / Proxy | `https://www.fuel-finder.service.gov.uk` |
+| `UFF_CONFIG_DIR` | Working directory for cache/state | `/config/.storage/uk_fuel_finder` |
+| `UFF_OUTPUT_DIR` | Target output directory | Directory of `uff.py` |
 
 ### Running via Docker Compose
 
