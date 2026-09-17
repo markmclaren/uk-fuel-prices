@@ -637,6 +637,8 @@ def main(argv: list[str] | None = None) -> int:
         or DEFAULTS["base_url"]
     ).rstrip("/")
 
+    debug_print(f"Config: base_url={base_url}")
+
     client_id = args.client_id or cfg.get("client_id") or os.environ.get("UFF_CLIENT_ID")
     client_secret = args.client_secret or cfg.get("client_secret") or os.environ.get("UFF_CLIENT_SECRET")
 
