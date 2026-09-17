@@ -518,12 +518,12 @@ function initMap() {
 
 function updateMapSource() {
   if (!map || !map.isStyleLoaded()) return;
+  const radKm = parseFloat(document.getElementById('radius').value) || 15;
   if (myLat && myLon) {
     map.getSource('my-location')?.setData({
       type: 'FeatureCollection',
       features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [myLon, myLat] } }]
     });
-    const radKm = parseFloat(document.getElementById('radius').value) || 15;
     map.getSource('radius-circle')?.setData(createGeoJSONCircle(myLon, myLat, radKm));
   }
   const colorMap = {
@@ -539,11 +539,20 @@ function updateMapSource() {
     properties: { id: s.id, name: s.name, color: colorMap[s.statusClass] || '#58a6ff' }
   }));
   map.getSource('stations')?.setData({ type: 'FeatureCollection', features });
-  if (results.length > 0) {
-    const lons = results.map(r => r.lon);
-    const lats  = results.map(r => r.lat);
-    if (myLon) lons.push(myLon); if (myLat) lats.push(myLat);
-    map.fitBounds([[Math.min(...lons)-0.01, Math.min(...lats)-0.01],[Math.max(...lons)+0.01, Math.max(...lats)+0.01]], { padding: 60, duration: 800 });
+
+  if (myLat && myLon) {
+    const kmInEqDegrees = 111.32;
+    const dLat = radKm / kmInEqDegrees;
+    const dLon = radKm / (kmInEqDegrees * Math.cos((myLat * Math.PI) / 180));
+
+    const lons = [myLon - dLon, myLon + dLon];
+    const lats = [myLat - dLat, myLat + dLat];
+    results.forEach(r => { lons.push(r.lon); lats.push(r.lat); });
+
+    map.fitBounds([
+      [Math.min(...lons), Math.min(...lats)],
+      [Math.max(...lons), Math.max(...lats)]
+    ], { padding: 40, duration: 800 });
   }
 }
 
@@ -634,8 +643,8 @@ function locateMe(silent = false) {
         btn.textContent = '\uD83D\uDCCD Located \u2713';
         btn.disabled = false;
       }
-      map?.flyTo({ center: [lon, lat], zoom: 11, duration: 1000 });
       if (priceData) runSearch();
+      else updateMapSource();
     },
     (err) => {
       if (btn) {
