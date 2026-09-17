@@ -517,7 +517,11 @@ function initMap() {
 }
 
 function updateMapSource() {
-  if (!map || !map.isStyleLoaded()) return;
+  if (!map) return;
+  if (!map.isStyleLoaded()) {
+    map.once('load', updateMapSource);
+    return;
+  }
   const radKm = parseFloat(document.getElementById('radius').value) || 15;
   if (myLat && myLon) {
     map.getSource('my-location')?.setData({
