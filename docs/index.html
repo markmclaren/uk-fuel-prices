@@ -459,13 +459,13 @@ function initMap() {
       id: 'radius-circle-fill',
       type: 'fill',
       source: 'radius-circle',
-      paint: { 'fill-color': '#58a6ff', 'fill-opacity': 0.08 }
+      paint: { 'fill-color': '#58a6ff', 'fill-opacity': 0.12 }
     });
     map.addLayer({
       id: 'radius-circle-stroke',
       type: 'line',
       source: 'radius-circle',
-      paint: { 'line-color': '#58a6ff', 'line-width': 1.5, 'line-dasharray': [3, 2] }
+      paint: { 'line-color': '#58a6ff', 'line-width': 2, 'line-dasharray': [3, 2] }
     });
 
     map.addSource('my-location', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -509,7 +509,10 @@ function initMap() {
       document.getElementById('lon').value = e.lngLat.lng.toFixed(6);
       myLat = e.lngLat.lat; myLon = e.lngLat.lng;
       if (priceData) runSearch();
+      else updateMapSource();
     });
+
+    updateMapSource();
   });
 }
 
