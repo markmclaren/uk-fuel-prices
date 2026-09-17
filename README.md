@@ -23,8 +23,8 @@ The algorithm evaluates every station within your chosen search radius by comput
 | Symbol | Parameter | Unit | Source / Default |
 |---|---|---|---|
 | `P_pump` | Station Pump Price | pence / litre | API Data |
-| `d_one_way` | Distance to Station | miles | Haversine Formula |
-| `d_round_trip` | Round-trip Detour Distance ($2 \times d_{\text{one-way}}$) | miles | Calculated |
+| `d_oneway` | Distance to Station | miles | Haversine Formula |
+| `d_roundtrip` | Round-trip Detour Distance ($2 \times d_{\text{oneway}}$) | miles | Calculated |
 | `MPG` | Vehicle Fuel Economy | UK Imperial MPG | 40.0 mpg |
 | `V_tank` | Tank Fill Amount | litres | 40 L |
 | `C_gal` | UK Gallon Constant | litres / gallon | 4.54609 L |
@@ -36,7 +36,7 @@ The algorithm evaluates every station within your chosen search radius by comput
 First, determine the total litres of fuel burned during the round trip ($L_{\text{burn}}$):
 
 ```math
-L_{\text{burn}} = d_{\text{round-trip}} \times \left( \frac{C_{\text{gal}}}{\text{MPG}} \right)
+L_{\text{burn}} = d_{\text{roundtrip}} \times \left( \frac{C_{\text{gal}}}{\text{MPG}} \right)
 ```
 
 The monetary cost of burning that fuel ($C_{\text{detour}}$, in pence) evaluated at the target station's price:
@@ -55,7 +55,7 @@ The **Effective Price** ($P_{\text{true}}$, in pence per litre) bakes the detour
 P_{\text{true}} = P_{\text{pump}} + \left( \frac{C_{\text{detour}}}{V_{\text{tank}}} \right)
 ```
 
-The **Total True Tank Cost** ($T_{\text{true}}$, in GBP £) is the complete out-of-pocket cost for the trip and fill:
+The **Total True Tank Cost** ($T_{\text{true}}$, in GBP) is the complete out-of-pocket cost for the trip and fill:
 
 ```math
 T_{\text{true}} = \frac{P_{\text{true}} \times V_{\text{tank}}}{100} = \frac{(P_{\text{pump}} \times V_{\text{tank}}) + C_{\text{detour}}}{100}
@@ -65,13 +65,13 @@ T_{\text{true}} = \frac{P_{\text{true}} \times V_{\text{tank}}}{100} = \frac{(P_
 
 ### 4. Savings & Verdict Classification
 
-Comparing a candidate station ($P_{\text{true-target}}$) against the nearest available station ($P_{\text{true-nearest}}$):
+Comparing a candidate station ($P_{\text{target}}$) against the nearest available station ($P_{\text{nearest}}$):
 
 ```math
-\Delta S = \frac{(P_{\text{true-nearest}} - P_{\text{true-target}}) \times V_{\text{tank}}}{100}
+\Delta S = \frac{(P_{\text{nearest}} - P_{\text{target}}) \times V_{\text{tank}}}{100}
 ```
 
-Stations are classified into four visual tiers based on net savings ($\Delta S$ in GBP £):
+Stations are classified into four visual tiers based on net savings ($\Delta S$ in GBP):
 - 🔵 **Nearest**: The geographically closest station (baseline reference).
 - 🟢 **Worth It**: Net saving $\Delta S > +£0.10$.
 - 🟡 **Break-Even**: Net saving within $\pm £0.10$.
