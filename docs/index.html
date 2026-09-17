@@ -363,6 +363,13 @@ function renderResults() {
   const countEl = document.getElementById('result-count');
   const tankL = parseFloat(document.getElementById('tank').value) || 40;
 
+  if (!myLat || !myLon) {
+    sortBar.style.display = 'none';
+    header.style.display = 'none';
+    container.innerHTML = '<div class="state-msg"><div class="icon">📍</div><strong>Set your location</strong>Click "📍 Locate me" above or click anywhere on the map to find cheap fuel near you.</div>';
+    return;
+  }
+
   if (!results.length) {
     sortBar.style.display = 'none';
     header.style.display = 'none';
@@ -632,12 +639,6 @@ function locateMe(silent = false) {
   }
   if (!navigator.geolocation) {
     if (btn) { btn.textContent = '📍 Locate me'; btn.disabled = false; }
-    if (!myLat || !myLon) {
-      myLat = 51.5074; myLon = -0.1276;
-      document.getElementById('lat').value = '51.5074';
-      document.getElementById('lon').value = '-0.1276';
-      if (priceData) runSearch();
-    }
     if (!silent) alert('Geolocation is not supported by your browser.');
     return;
   }
@@ -660,12 +661,6 @@ function locateMe(silent = false) {
       if (btn) {
         btn.textContent = '📍 Locate me';
         btn.disabled = false;
-      }
-      if (!myLat || !myLon) {
-        myLat = 51.5074; myLon = -0.1276;
-        document.getElementById('lat').value = '51.5074';
-        document.getElementById('lon').value = '-0.1276';
-        if (priceData) runSearch();
       }
       if (!silent) alert('Could not get location: ' + err.message);
     },
@@ -757,13 +752,6 @@ tryFetchJson('prices_latest.json')
       document.getElementById('btn-search').disabled = false;
       if (myLat && myLon) {
         runSearch();
-      } else {
-        const latVal = parseFloat(document.getElementById('lat').value);
-        const lonVal = parseFloat(document.getElementById('lon').value);
-        if (!isNaN(latVal) && !isNaN(lonVal)) {
-          myLat = latVal; myLon = lonVal;
-          runSearch();
-        }
       }
     }
   })
