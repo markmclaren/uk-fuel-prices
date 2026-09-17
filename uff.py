@@ -34,7 +34,7 @@ def debug_print(msg: str) -> None:
 
 
 BASE_URL = "https://www.fuel-finder.service.gov.uk"
-RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+RETRYABLE_STATUS = {500, 502, 503, 504}
 
 DEFAULTS = {
     "base_url": "https://www.fuel-finder.service.gov.uk",
@@ -144,6 +144,12 @@ class AuthError(Exception):
         self.response = response
 
 
+class RateLimitError(Exception):
+    def __init__(self, message: str, response: HTTPResponse | None = None) -> None:
+        super().__init__(message)
+        self.response = response
+
+
 def request_with_retry(
     method: str,
     url: str,
@@ -179,6 +185,9 @@ def request_with_retry(
             body = e.read()
             body_text = body.decode("utf-8", errors="replace").strip()
             resp_obj = HTTPResponse(e.code, body)
+            if e.code == 429:
+                msg = f"Rate Limit HTTP 429: API rate limit exceeded ({body_text or 'Try again later'})"
+                raise RateLimitError(msg, response=resp_obj)
             if e.code in (401, 403):
                 if not body_text:
                     if e.code == 403:
