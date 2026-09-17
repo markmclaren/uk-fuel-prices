@@ -259,6 +259,7 @@ let priceData = null;
 let myLat = null;
 let myLon = null;
 let results = [];
+let currentAugmented = [];
 let sortMode = 'effective';
 let sortOrder = 'asc';
 let displayMode = 'tank'; // 'tank' or 'pence'
@@ -395,6 +396,8 @@ function renderResults() {
     return (a.effectivePrice - b.effectivePrice) * dir;
   });
 
+  currentAugmented = augmented;
+
   countEl.textContent = results.length + ' station' + (results.length !== 1 ? 's' : '') + ' found';
 
   const isTank = displayMode === 'tank';
@@ -526,7 +529,8 @@ function updateMapSource() {
     'status-not-worth': '#f85149',
     'status-nearest':  '#58a6ff'
   };
-  const features = results.map(s => ({
+  const listToRender = currentAugmented.length ? currentAugmented : results;
+  const features = listToRender.map(s => ({
     type: 'Feature',
     geometry: { type: 'Point', coordinates: [s.lon, s.lat] },
     properties: { id: s.id, name: s.name, color: colorMap[s.statusClass] || '#58a6ff' }
