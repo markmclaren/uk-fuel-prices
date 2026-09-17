@@ -631,10 +631,12 @@ def main(argv: list[str] | None = None) -> int:
         cfg.update(cfg_file)
 
     env_base = (os.environ.get("UFF_BASE_URL") or "").strip().strip("'\"")
+    cfg_base = cfg_file.get("base_url") if isinstance(cfg_file, dict) else None
+
     base_url = (
         args.base_url
-        or cfg.get("base_url")
         or (env_base if env_base else None)
+        or cfg_base
         or DEFAULTS["base_url"]
     ).rstrip("/")
 
