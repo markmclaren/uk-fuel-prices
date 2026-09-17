@@ -350,6 +350,11 @@ function getSaving(s, baselineEffective, tankL) {
   return (baselineEffective - s.effectivePrice) * tankL / 100;
 }
 
+function getThArrow(colMode) {
+  if (sortMode !== colMode) return '';
+  return sortOrder === 'asc' ? ' ▲' : ' ▼';
+}
+
 function renderResults() {
   const container = document.getElementById('results');
   const sortBar = document.getElementById('sort-bar');
