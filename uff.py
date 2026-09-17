@@ -5,7 +5,7 @@ uff.py - UK Fuel Finder Data Collector & Dumper
 
 Streamlined command-line tool for pulling UK fuel prices from the
 Government Fuel Finder API. Handles caching, auto-retries, rate-limiting,
-and exports `prices_YYYY-MM-DD.json` for web application consumption.
+HTTP connection pooling, and exports `prices_YYYY-MM-DD.json` for web application consumption.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import json
 import os
 import sys
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -24,12 +25,12 @@ from typing import Any
 import requests
 
 DEBUG = False
+SESSION = requests.Session()
 
 
 def debug_print(msg: str) -> None:
     if DEBUG:
-        ts = datetime.now().strftime("%H:%M:%S")
-        print(f"[{ts}] {msg}", file=sys.stderr)
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", file=sys.stderr)
 
 
 BASE_URL = "https://www.fuel-finder.service.gov.uk"
@@ -66,10 +67,8 @@ def parse_dt_maybe(s: str | None) -> datetime | None:
     if not s:
         return None
     try:
-        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc)
+        dt = datetime.fromisoformat(s)
+        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
     except Exception:
         return None
 
@@ -83,9 +82,7 @@ def _price_fix_to_pence(price_raw: Any) -> float | None:
         return None
     try:
         p = float(price_raw)
-        if 0 < p < 5.0:
-            return round(p * 100.0, 1)
-        return round(p, 1)
+        return round(p * 100.0 if 0 < p < 5.0 else p, 1)
     except (ValueError, TypeError):
         return None
 
@@ -93,7 +90,7 @@ def _price_fix_to_pence(price_raw: Any) -> float | None:
 # --------------------- Filesystem & Locking ---------------------
 
 
-@dataclass
+@dataclass(slots=True)
 class Paths:
     work_dir: Path
     state_file: Path
@@ -104,37 +101,22 @@ class Paths:
 
 def make_paths(work_dir: str) -> Paths:
     d = Path(work_dir)
-    return Paths(
-        work_dir=d,
-        state_file=d / "state.json",
-        token_file=d / "token.json",
-        lock_file=d / "state.lock",
-        config_file=d / "config.json",
-    )
+    return Paths(d, d / "state.json", d / "token.json", d / "state.lock", d / "config.json")
 
 
-class FileLock:
+@contextmanager
+def file_lock(lock_path: Path):
     """Exclusive advisory file lock using fcntl for multi-process safety."""
-
-    def __init__(self, lock_path: Path) -> None:
-        self.lock_path = lock_path
-        self.fd: Any = None
-
-    def __enter__(self) -> FileLock:
-        self.lock_path.parent.mkdir(parents=True, exist_ok=True)
-        self.fd = open(self.lock_path, "w")
-        fcntl.flock(self.fd, fcntl.LOCK_EX)
-        return self
-
-    def __exit__(self, exc_type: type | None, exc: BaseException | None, tb: Any | None) -> None:
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "w") as fd:
+        fcntl.flock(fd, fcntl.LOCK_EX)
         try:
-            fcntl.flock(self.fd, fcntl.LOCK_UN)
+            yield
         finally:
-            if self.fd:
-                try:
-                    self.fd.close()
-                except Exception:
-                    pass
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            except Exception:
+                pass
 
 
 # --------------------- HTTP & Retries ---------------------
@@ -157,11 +139,12 @@ def request_with_retry(
     retries: int = DEFAULTS["http_retries"],
     backoff_base: float = DEFAULTS["http_backoff_base"],
     backoff_jitter: float = DEFAULTS["http_backoff_jitter"],
+    session: requests.Session = SESSION,
 ) -> requests.Response:
     last_exc: Exception | None = None
     for attempt in range(retries):
         try:
-            resp = requests.request(
+            resp = session.request(
                 method, url, headers=headers, params=params, json=json_body, timeout=timeout
             )
             if resp.status_code in (401, 403):
@@ -173,9 +156,7 @@ def request_with_retry(
             resp.raise_for_status()
             return resp
         except Exception as e:
-            if isinstance(e, AuthError):
-                raise
-            if isinstance(e, requests.HTTPError) and getattr(getattr(e, "response", None), "status_code", None) == 404:
+            if isinstance(e, AuthError) or (isinstance(e, requests.HTTPError) and getattr(e.response, "status_code", None) == 404):
                 raise
             last_exc = e
             if attempt == retries - 1:
@@ -253,15 +234,16 @@ def fetch_all_batches(
     batch_sleep: float = DEFAULTS["batch_sleep_seconds"],
     refresh_token_fn: Any | None = None,
 ) -> list[dict[str, Any]]:
-    """Fetch all pages from a paginated API endpoint, returning combined rows."""
+    """Fetch all pages from a paginated API endpoint using session connection pooling."""
     t0 = time.time()
     debug_print(f"API fetch start: {path} params={params}")
     headers = {"accept": "application/json", "authorization": f"Bearer {token}"}
     out: list[dict[str, Any]] = []
     batch = 1
+    base_params = dict(params or {})
+
     while True:
-        qp = dict(params or {})
-        qp["batch-number"] = str(batch)
+        qp = {**base_params, "batch-number": str(batch)}
         url = f"{BASE_URL}{path}"
         try:
             resp = request_with_retry("GET", url, headers=headers, params=qp)
@@ -270,7 +252,7 @@ def fetch_all_batches(
                 raise
             debug_print(f"Auth failed. Forcing token refresh and retrying batch {batch}.")
             token = refresh_token_fn()
-            headers = {"accept": "application/json", "authorization": f"Bearer {token}"}
+            headers["authorization"] = f"Bearer {token}"
             resp = request_with_retry("GET", url, headers=headers, params=qp)
         except requests.HTTPError as e:
             if getattr(e.response, "status_code", None) == 404:
@@ -296,6 +278,7 @@ def fetch_all_batches(
 
 
 def empty_state() -> dict[str, Any]:
+    now = iso_utc(utc_now())
     return {
         "stations": {},
         "prices": {},
@@ -305,8 +288,8 @@ def empty_state() -> dict[str, Any]:
             "prices_baseline_at": None,
             "prices_last_incremental_at": None,
             "prices_max_price_last_updated": None,
-            "created_at": iso_utc(utc_now()),
-            "updated_at": iso_utc(utc_now()),
+            "created_at": now,
+            "updated_at": now,
         },
     }
 
@@ -334,13 +317,12 @@ def prices_to_dict(items: list[dict[str, Any]]) -> tuple[dict[str, dict[str, Any
 
     for it in items:
         sid = it.get("node_id")
-        if not sid:
+        fp = it.get("fuel_prices")
+        if not sid or not isinstance(fp, list):
             continue
         sid = str(sid)
-        fp = it.get("fuel_prices", [])
-        if not isinstance(fp, list):
-            continue
-        per_station: dict[str, Any] = out.get(sid, {})
+        per_station = out.setdefault(sid, {})
+
         for row in fp:
             if not isinstance(row, dict):
                 continue
@@ -349,8 +331,7 @@ def prices_to_dict(items: list[dict[str, Any]]) -> tuple[dict[str, dict[str, Any
                 continue
             ft = str(ft)
             price = _price_fix_to_pence(row.get("price"))
-            plu = row.get("price_last_updated")
-            pcet = row.get("price_change_effective_timestamp")
+            plu, pcet = row.get("price_last_updated"), row.get("price_change_effective_timestamp")
 
             per_station[ft] = {
                 "price": price,
@@ -358,26 +339,25 @@ def prices_to_dict(items: list[dict[str, Any]]) -> tuple[dict[str, dict[str, Any
                 "price_change_effective_timestamp": pcet,
             }
 
-            dt_plu = parse_dt_maybe(plu)
-            dt_pcet = parse_dt_maybe(pcet)
-            candidates = [t for t in (dt_plu, dt_pcet) if t is not None]
-            row_dt = min(max(candidates), now) if candidates else None
-            if row_dt and (max_dt is None or row_dt > max_dt):
-                max_dt = row_dt
-        out[sid] = per_station
+            for ts in (plu, pcet):
+                dt = parse_dt_maybe(ts)
+                if dt:
+                    dt = min(dt, now)
+                    if max_dt is None or dt > max_dt:
+                        max_dt = dt
 
     return out, (iso_utc(max_dt) if max_dt else None)
 
 
 def merge_price_dict(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
-    base = dict(base or {})
+    res = dict(base or {})
     for sid, fuels in (updates or {}).items():
         sid = str(sid)
-        if sid not in base or not isinstance(base.get(sid), dict):
-            base[sid] = {}
-        for ft, row in (fuels or {}).items():
-            base[sid][str(ft)] = row
-    return base
+        station = res.setdefault(sid, {})
+        if isinstance(station, dict) and isinstance(fuels, dict):
+            for ft, row in fuels.items():
+                station[str(ft)] = row
+    return res
 
 
 def cache_stats(state: dict[str, Any]) -> dict[str, Any]:
@@ -420,7 +400,7 @@ def ensure_cache(
     prices_min_coverage_ratio: float = DEFAULTS["prices_min_coverage_ratio"],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Ensure local cache is up to date via baseline or incremental API pulls."""
-    with FileLock(paths.lock_file):
+    with file_lock(paths.lock_file):
         if full_refresh:
             debug_print("Cache: full refresh requested; invalidating state")
             if paths.state_file.exists():
@@ -523,6 +503,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--prices-refresh", action="store_true", help="Force prices baseline refresh only")
     p.add_argument("--dump", action="store_true", default=True, help="Write all stations with fresh prices to prices_<date>.json")
     p.add_argument("--max-price-age-days", type=float, default=None, metavar="DAYS", help="Exclude fuel prices older than DAYS days")
+    p.add_argument("--compact", action="store_true", help="Format JSON output compactly without indentation")
     return p.parse_args(argv)
 
 
@@ -531,6 +512,7 @@ def dump_prices_json(
     stats: dict[str, Any],
     paths: Paths,
     max_price_age_days: float | None,
+    compact: bool = False,
 ) -> tuple[Path, int]:
     """Write all stations with fresh prices to prices_YYYY-MM-DD.json."""
     cutoff_dt = utc_now() - timedelta(days=max_price_age_days) if max_price_age_days is not None else None
@@ -553,9 +535,7 @@ def dump_prices_json(
         if cutoff_dt is not None and not price_out:
             continue
 
-        st_clean = dict(st)
-        st_clean["fuel_prices"] = price_out
-        dump_stations.append(st_clean)
+        dump_stations.append({**st, "fuel_prices": price_out})
 
     dump_out = {
         "state": "ok",
@@ -564,7 +544,9 @@ def dump_prices_json(
         "stations": dump_stations,
     }
     dump_file = paths.work_dir / f"prices_{utc_now().strftime('%Y-%m-%d')}.json"
-    dump_file.write_text(json.dumps(dump_out, ensure_ascii=False, indent=2), encoding="utf-8")
+    indent = None if compact else 2
+    separators = (",", ":") if compact else None
+    dump_file.write_text(json.dumps(dump_out, ensure_ascii=False, indent=indent, separators=separators), encoding="utf-8")
     return dump_file, len(dump_stations)
 
 
@@ -614,7 +596,7 @@ def main(argv: list[str] | None = None) -> int:
         }, ensure_ascii=False))
         return 2
 
-    dump_file, count = dump_prices_json(state, stats, paths, args.max_price_age_days)
+    dump_file, count = dump_prices_json(state, stats, paths, args.max_price_age_days, compact=args.compact)
     debug_print(f"Dump: wrote {count} stations to {dump_file}")
     print(json.dumps({"state": "ok", "dump_file": str(dump_file), "station_count": count}, ensure_ascii=False))
     return 0
