@@ -126,14 +126,29 @@ export default {
   async fetch(request) {
     const url = new URL(request.url);
     url.hostname = "www.fuel-finder.service.gov.uk";
+    url.protocol = "https:";
 
-    const modifiedRequest = new Request(url, {
+    // Strip client IP headers so CloudFront sees request originating from Cloudflare Edge
+    const headers = new Headers(request.headers);
+    headers.set("Host", "www.fuel-finder.service.gov.uk");
+    headers.delete("cf-connecting-ip");
+    headers.delete("x-forwarded-for");
+    headers.delete("x-real-ip");
+    headers.delete("true-client-ip");
+    headers.delete("cf-ray");
+    headers.delete("cf-visitor");
+
+    const init = {
       method: request.method,
-      headers: request.headers,
-      body: request.body,
-    });
+      headers: headers,
+    };
 
-    return fetch(modifiedRequest);
+    // Attach body only for non-GET/HEAD requests
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      init.body = await request.arrayBuffer();
+    }
+
+    return fetch(url.toString(), init);
   }
 };
 ```
