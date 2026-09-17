@@ -6,6 +6,9 @@ A self-contained web application and automated data collection pipeline to answe
 
 A petrol station 10 miles away charging **135.0p/L** may cost you *more* overall than a local station charging **140.0p/L** once you factor in the round-trip detour fuel burn. This tool computes the **True Cost** (effective price per litre and total tank cost) for every nearby station.
 
+> [!NOTE]
+> **Test Demonstration Environment**: This repository is a test sandbox for the UK Fuel Price Aggregator pipeline. Fuel prices are automatically collected and updated **once daily at 06:00 UTC** via GitHub Actions.
+
 ---
 
 ## 🔗 Project Origin & Attribution
