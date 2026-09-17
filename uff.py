@@ -4,8 +4,8 @@ uff.py - UK Fuel Finder Data Collector & Dumper
 ===================================================
 
 Streamlined command-line tool for pulling UK fuel prices from the
-Government Fuel Finder API. Handles caching, auto-retries, rate-limiting,
-HTTP connection pooling, and exports `prices_YYYY-MM-DD.json` for web application consumption.
+Government Fuel Finder API. Zero external dependencies (uses standard library).
+Handles caching, auto-retries, rate-limiting, and exports `prices_YYYY-MM-DD.json`.
 """
 
 from __future__ import annotations
@@ -16,16 +16,16 @@ import json
 import os
 import sys
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-import requests
-
 DEBUG = False
-SESSION = requests.Session()
 
 
 def debug_print(msg: str) -> None:
@@ -119,11 +119,26 @@ def file_lock(lock_path: Path):
                 pass
 
 
-# --------------------- HTTP & Retries ---------------------
+# --------------------- HTTP & Retries (Standard Library) ---------------------
+
+
+class HTTPResponse:
+    def __init__(self, status_code: int, data: bytes) -> None:
+        self.status_code = status_code
+        self._data = data
+
+    def json(self) -> Any:
+        return json.loads(self._data.decode("utf-8"))
+
+
+class HTTPError(Exception):
+    def __init__(self, message: str, response: HTTPResponse | None = None) -> None:
+        super().__init__(message)
+        self.response = response
 
 
 class AuthError(Exception):
-    def __init__(self, message: str, response: requests.Response | None = None) -> None:
+    def __init__(self, message: str, response: HTTPResponse | None = None) -> None:
         super().__init__(message)
         self.response = response
 
@@ -139,32 +154,46 @@ def request_with_retry(
     retries: int = DEFAULTS["http_retries"],
     backoff_base: float = DEFAULTS["http_backoff_base"],
     backoff_jitter: float = DEFAULTS["http_backoff_jitter"],
-    session: requests.Session = SESSION,
-) -> requests.Response:
+) -> HTTPResponse:
+    if params:
+        url = f"{url}?{urllib.parse.urlencode(params)}"
+
+    req_headers = dict(headers)
+    data_bytes: bytes | None = None
+    if json_body is not None:
+        data_bytes = json.dumps(json_body, ensure_ascii=False).encode("utf-8")
+        req_headers["content-type"] = "application/json"
+
+    req = urllib.request.Request(url, data=data_bytes, headers=req_headers, method=method.upper())
+
     last_exc: Exception | None = None
     for attempt in range(retries):
         try:
-            resp = session.request(
-                method, url, headers=headers, params=params, json=json_body, timeout=timeout
-            )
-            if resp.status_code in (401, 403):
-                raise AuthError(f"Auth HTTP {resp.status_code}", response=resp)
-            if resp.status_code == 404:
-                raise requests.HTTPError("HTTP 404 Not Found", response=resp)
-            if resp.status_code in RETRYABLE_STATUS:
-                raise requests.HTTPError(f"Retryable HTTP {resp.status_code}", response=resp)
-            resp.raise_for_status()
-            return resp
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return HTTPResponse(resp.status, resp.read())
+        except urllib.error.HTTPError as e:
+            resp_obj = HTTPResponse(e.code, e.read())
+            if e.code in (401, 403):
+                raise AuthError(f"Auth HTTP {e.code}", response=resp_obj)
+            if e.code == 404:
+                raise HTTPError("HTTP 404 Not Found", response=resp_obj)
+            if e.code in RETRYABLE_STATUS:
+                last_exc = HTTPError(f"Retryable HTTP {e.code}", response=resp_obj)
+            else:
+                raise HTTPError(f"HTTP {e.code}", response=resp_obj)
         except Exception as e:
-            if isinstance(e, AuthError) or (isinstance(e, requests.HTTPError) and getattr(e.response, "status_code", None) == 404):
-                raise
             last_exc = e
-            if attempt == retries - 1:
-                raise
-            status = getattr(getattr(e, "response", None), "status_code", None)
-            debug_print(f"HTTP retry {attempt + 1}/{retries - 1} for {method} {url} (status={status}): {e}")
-            sleep_s = (backoff_base**attempt) + (backoff_jitter * (0.5 + (attempt % 3) / 3))
-            time.sleep(min(30.0, sleep_s))
+
+        if attempt == retries - 1:
+            if last_exc:
+                raise last_exc
+            raise RuntimeError("Request failed after retries")
+
+        status = getattr(getattr(last_exc, "response", None), "status_code", None)
+        debug_print(f"HTTP retry {attempt + 1}/{retries - 1} for {method} {url} (status={status}): {last_exc}")
+        sleep_s = (backoff_base**attempt) + (backoff_jitter * (0.5 + (attempt % 3) / 3))
+        time.sleep(min(30.0, sleep_s))
+
     if last_exc:
         raise last_exc
     raise RuntimeError("request_with_retry unreachable")
@@ -234,7 +263,7 @@ def fetch_all_batches(
     batch_sleep: float = DEFAULTS["batch_sleep_seconds"],
     refresh_token_fn: Any | None = None,
 ) -> list[dict[str, Any]]:
-    """Fetch all pages from a paginated API endpoint using session connection pooling."""
+    """Fetch all pages from a paginated API endpoint using stdlib urllib."""
     t0 = time.time()
     debug_print(f"API fetch start: {path} params={params}")
     headers = {"accept": "application/json", "authorization": f"Bearer {token}"}
@@ -254,7 +283,7 @@ def fetch_all_batches(
             token = refresh_token_fn()
             headers["authorization"] = f"Bearer {token}"
             resp = request_with_retry("GET", url, headers=headers, params=qp)
-        except requests.HTTPError as e:
+        except HTTPError as e:
             if getattr(e.response, "status_code", None) == 404:
                 debug_print(f"  batch {batch}: 404 received — end of results")
                 break
