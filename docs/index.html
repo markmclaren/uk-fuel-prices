@@ -449,8 +449,8 @@ function initMap() {
   map = new maplibregl.Map({
     container: 'map',
     style: 'https://tiles.openfreemap.org/styles/dark',
-    center: [-0.1276, 51.5074],
-    zoom: 10,
+    center: [-2.5, 54.5],
+    zoom: 5.5,
     pitch: 0,
     attributionControl: false
   });
@@ -551,7 +551,7 @@ function updateMapSource() {
   }));
   map.getSource('stations')?.setData({ type: 'FeatureCollection', features });
 
-  if (myLat && myLon) {
+  if (myLat && myLon && results.length > 0) {
     const kmInEqDegrees = 111.32;
     const dLat = radKm / kmInEqDegrees;
     const dLon = radKm / (kmInEqDegrees * Math.cos((myLat * Math.PI) / 180));
