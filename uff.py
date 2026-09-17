@@ -1,65 +1,12 @@
 #!/usr/bin/env python3
 """
-uff.py - UK Fuel Finder (Government API Integration)
-====================================================
+uff.py - UK Fuel Finder Data Collector & Dumper
+===================================================
 
-A command-line tool for querying UK fuel prices from the
-Government Fuel Finder API with intelligent caching, multi-sensor
-support, and flexible filtering.
-
-FEATURES
---------
-- Smart caching: Baseline + incremental updates minimise API calls
-- Multi-sensor safe: File locking allows concurrent execution
-- Fast queries: Cached data means instant results (<1 second)
-- Flexible filtering: Regex patterns for name, brand, postcode, fuel type
-- Staleness filtering: --max-price-age-days hides outdated per-fuel prices
-- Data cleaning: Automatically fixes price entry errors (< 2p)
-- Data cleaning: Automatically attempts to fix address formatting issues
-- All fuel types: E10, E5, B7, B7 Premium, HVO, B10
-
-WORKING DIRECTORY MODEL
------------------------
-All files are stored in a single working directory:
-    - config.json   (optional: API credentials and settings)
-    - state.json    (cache: stations + prices, ~3-5MB)
-    - token.json    (OAuth access + refresh token)
-    - state.lock    (inter-process lock, auto-managed)
-
-DIRECTORY RESOLUTION
---------------------
-The script finds the working directory in this order:
-1. CLI argument: --config-dir /path/to/dir
-2. Environment: UFF_CONFIG_DIR=/path/to/dir
-3. Default: /config/.storage/uk_fuel_finder
-
-CREDENTIALS RESOLUTION
-----------------------
-API credentials are resolved in this order:
-1. CLI arguments: --client-id ID --client-secret SECRET
-2. config.json file in working directory
-3. Environment: UFF_CLIENT_ID=... UFF_CLIENT_SECRET=...
-
-DEBUGGING
----------
-Use --debug to print diagnostic messages to stderr.
-stdout always contains only JSON output (safe for piping/parsing).
-
-HOME ASSISTANT INTEGRATION
----------------------------
-Install in /config/scripts/uff.py and configure as command_line sensor.
-Multiple sensors can run concurrently (file locking prevents conflicts).
-
-API REGISTRATION
-----------------
-Register for free API credentials at:
-https://www.fuel-finder.service.gov.uk/
-
-NOTES
-----------------
-Created for the Home Assistant community
-License: GPL v3 - https://www.gnu.org/licenses/gpl-3.0
-Author: Phil Male - https://phil-male.com
+A streamlined command-line tool for pulling UK fuel prices from the
+Government Fuel Finder API. Integrates smart caching, auto-retries, rate-limiting,
+and data error cleaning, and outputs `prices_YYYY-MM-DD.json` for consumption by
+the True Cost Fuel Finder web application.
 """
 
 from __future__ import annotations
@@ -67,108 +14,66 @@ from __future__ import annotations
 import argparse
 import fcntl
 import json
-import math
 import os
-import re
 import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import requests
 
-# --------------------- debug ---------------------
+# --------------------- Debug & Defaults ---------------------
 
-# Global debug flag, toggled by --debug CLI argument
 DEBUG = False
 
 
 def debug_print(msg: str) -> None:
-    """Print a timestamped diagnostic message to stderr.
-
-    Only emits output when the global DEBUG flag is True, so this can be called
-    freely throughout the codebase without affecting normal JSON-only stdout output.
-
-    Args:
-        msg: The message to print.
-    """
+    """Print a timestamped diagnostic message to stderr if DEBUG is enabled."""
     if not DEBUG:
         return
     ts = datetime.now().strftime("%H:%M:%S")
     print(f"[{ts}] {msg}", file=sys.stderr)
 
 
-# API base URL and HTTP status codes eligible for retry
 BASE_URL = "https://www.fuel-finder.service.gov.uk"
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
-# Configurable defaults for cache timing, HTTP behaviour, and batch pacing.
-# Note at peak times the API really needs to be treated with care to avoid
-# hitting rate limits - experience shows that even 1 request per second can
-# trigger 429s, so we use a conservative default with exponential backoff and jitter.
 DEFAULTS = {
     "config_dir": "/config/.storage/uk_fuel_finder",
-    "stations_baseline_days": 7,  # days between full stations pull
-    "stations_incremental_hours": 12,  # hours between incremental stations updates
-    "prices_baseline_days": 2,  # days between full prices pull
-    "prices_incremental_hours": 1.0,  # hours between incremental price updates
+    "stations_baseline_days": 7,
+    "stations_incremental_hours": 12,
+    "prices_baseline_days": 2,
+    "prices_incremental_hours": 1.0,
     "http_timeout": 60,
     "http_retries": 6,
     "http_backoff_base": 1.8,
     "http_backoff_jitter": 0.7,
-    "batch_sleep_seconds": 4.0,  # pause between API batch pages; be conservative
-    "incremental_safety_minutes": 45,  # overlap window to catch late-arriving data
-    "prices_min_coverage_ratio": 0.5,  # reject a prices baseline if it covers fewer than
-    # this fraction of known stations (API degradation guard)
+    "batch_sleep_seconds": 4.0,
+    "incremental_safety_minutes": 45,
+    "prices_min_coverage_ratio": 0.5,
 }
 
 
-# --------------------- time helpers ---------------------
+# --------------------- Time Helpers ---------------------
 
 
 def utc_now() -> datetime:
-    """Return the current UTC datetime as a timezone-aware object.
-
-    Returns:
-        Current UTC datetime with tzinfo set to timezone.utc.
-    """
+    """Return current UTC datetime as a timezone-aware object."""
     return datetime.now(timezone.utc)
 
 
 def iso_utc(dt: datetime) -> str:
-    """Format a datetime as a UTC ISO 8601 string ending in 'Z'.
-
-    Converts the supplied datetime to UTC, formats as ISO 8601, and replaces
-    the '+00:00' suffix with 'Z' for compact, unambiguous representation.
-
-    Args:
-        dt: Any timezone-aware datetime.
-
-    Returns:
-        UTC ISO 8601 string, e.g. '2024-01-15T10:30:00Z'.
-    """
+    """Format a datetime as a UTC ISO 8601 string ending in 'Z'."""
     return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def parse_dt_maybe(s: str | None) -> datetime | None:
-    """Parse an ISO datetime string, returning None on any failure.
-
-    Handles both 'Z'-terminated and '+00:00'-terminated strings.  Designed
-    to be called on potentially missing or corrupt cache fields without raising.
-
-    Args:
-        s: ISO datetime string, or None.
-
-    Returns:
-        Timezone-aware datetime, or None if parsing fails.
-    """
+    """Parse an ISO datetime string, returning None on failure."""
     if not s:
         return None
-
-    # Replace trailing Z with +00:00 for fromisoformat compatibility (Python < 3.11)
     s2 = s.replace("Z", "+00:00")
     try:
         return datetime.fromisoformat(s2)
@@ -177,28 +82,12 @@ def parse_dt_maybe(s: str | None) -> datetime | None:
 
 
 def parse_price_dt(s: str | None) -> datetime | None:
-    """Parse an API price timestamp, treating naive datetimes as UTC.
-
-    The Fuel Finder API returns price timestamps as 'YYYY-MM-DDTHH:MM:SS'
-    without a timezone indicator.  We interpret these as UTC and normalise
-    to a timezone-aware datetime for safe comparisons.
-
-    Note: Python < 3.11 fromisoformat() does not accept trailing 'Z'; we
-    normalise to '+00:00' first for compatibility.
-
-    Args:
-        s: Price timestamp string from the API, or None.
-
-    Returns:
-        UTC timezone-aware datetime, or None if parsing fails.
-    """
+    """Parse an API price timestamp, treating naive datetimes as UTC."""
     if not s:
         return None
     try:
-        # Replace trailing Z with +00:00 for Python < 3.11 compatibility
         s2 = s.replace("Z", "+00:00")
         dt = datetime.fromisoformat(s2)
-        # If no timezone info present, assume UTC per spec
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.astimezone(timezone.utc)
@@ -206,28 +95,11 @@ def parse_price_dt(s: str | None) -> datetime | None:
         return None
 
 
-# --------------------- format helpers ---------------------
+# --------------------- Data Cleaning Helpers ---------------------
 
 
 def format_address_line(location: dict[str, Any], station_name: str = "") -> str:
-    """Extract a concise, human-readable address line from raw API location data.
-
-    The API address fields are inconsistently structured: sometimes a full
-    address is crammed into address_line_1 as a comma-separated string; other
-    times it is split across multiple fields.  This function applies heuristics
-    to produce a useful 1–2 part location string (e.g. "High Street, York")
-    by skipping noise words, postcodes, road numbers, and redundancy with the
-    station name itself.
-
-    Args:
-        location: The station's 'location' dict from the API.
-        station_name: The station's trading name, used to skip redundant address chunks.
-
-    Returns:
-        A comma-separated address string of up to two meaningful parts, or '' if
-        nothing useful can be extracted.
-    """
-    # Generic noise words common in station names/addresses but not useful as location
+    """Extract a clean, concise location string (e.g. 'High Street, York') from raw API data."""
     NOISE_WORDS = {
         "GARAGE",
         "SERVICE",
@@ -237,9 +109,6 @@ def format_address_line(location: dict[str, Any], station_name: str = "") -> str
         "PETROL",
         "FORECOURT",
     }
-
-    # Road descriptor words used both to identify useful address chunks and to
-    # guard against skipping chunks that happen to share words with the station name
     ROAD_WORDS = {
         "ROAD",
         "LANE",
@@ -279,23 +148,18 @@ def format_address_line(location: dict[str, Any], station_name: str = "") -> str
     }
 
     def is_road_number(s: str) -> bool:
-        """Return True if s looks like a UK road identifier (e.g. A1, M6, B4420)."""
         s_clean = s.strip().upper()
         if len(s_clean) < 2 or len(s_clean) > 6:
             return False
-        # UK road numbers start with A, B, or M followed by digits
         return s_clean[0] in "ABM" and s_clean[1:].isdigit()
 
     def is_postcode(s: str) -> bool:
-        """Return True if s resembles a UK postcode (with or without the space)."""
         s_clean = s.strip().replace(" ", "").upper()
         if not (5 <= len(s_clean) <= 8):
             return False
-        # UK postcodes always end in digit-letter-letter (e.g. 7RP, 7DZ)
         return s_clean[-1].isalpha() and s_clean[-2].isalpha() and s_clean[-3].isdigit()
 
     def is_noise(s: str) -> bool:
-        """Return True if s consists entirely of noise/filler words."""
         words = set(s.strip().upper().split())
         return bool(words) and words.issubset(
             NOISE_WORDS | {"&", "AND", "THE", "LTD", "LIMITED", "PLC", "LLP"}
@@ -305,11 +169,7 @@ def format_address_line(location: dict[str, Any], station_name: str = "") -> str
     addr1 = (location.get("address_line_1") or "").strip()
 
     if addr1.count(",") >= 2:
-        # Full address crammed into one field; split and process each chunk
         chunks = [c.strip() for c in addr1.split(",") if c.strip()]
-
-        # Skip leading chunks that contain noise words (e.g. "TEXACO GARAGE",
-        # "J R EWING & SON LTD") but stop as soon as we hit a road/location word.
         while chunks:
             chunk_words = set(chunks[0].upper().split())
             has_noise = bool(
@@ -322,34 +182,24 @@ def format_address_line(location: dict[str, Any], station_name: str = "") -> str
             else:
                 break
 
-        # If the station name appears in a chunk AND that chunk isn't a road,
-        # skip everything up to and including that chunk to avoid repeating the
-        # name in the address.  We don't skip road chunks even if they share
-        # words with the name (e.g. "White Hart Lane Service Station").
         if station_name:
             name_upper = station_name.upper().strip()
-            # Significant words: not noise, longer than 2 chars
             sig_words = [
                 w for w in name_upper.split() if w not in NOISE_WORDS and len(w) > 2
             ]
             for i, chunk in enumerate(chunks):
                 chunk_upper = chunk.upper()
                 chunk_words = set(chunk_upper.split())
-                # Never skip a chunk that describes a road
                 if chunk_words & ROAD_WORDS:
                     break
                 full_match = name_upper in chunk_upper
-                # Partial match: at least half of the significant words appear
                 word_match = sig_words and sum(
                     1 for w in sig_words if w in chunk_upper
                 ) >= max(1, len(sig_words) // 2)
                 if full_match or word_match:
-                    # Skip up to and including this name-containing chunk
                     chunks = chunks[i + 1 :]
                     break
 
-        # Pick up to two meaningful location chunks, skipping postcodes, road
-        # numbers, and pure noise strings
         for chunk in chunks:
             if is_postcode(chunk) or is_road_number(chunk) or is_noise(chunk):
                 continue
@@ -357,7 +207,6 @@ def format_address_line(location: dict[str, Any], station_name: str = "") -> str
             if len(parts) >= 2:
                 break
     else:
-        # Normal multi-field address; iterate in preference order
         for field in ["address_line_1", "address_line_2", "city"]:
             val = (location.get(field) or "").strip()
             if val and val.lower() != "null":
@@ -369,48 +218,29 @@ def format_address_line(location: dict[str, Any], station_name: str = "") -> str
     return ", ".join(parts[:2]) if parts else ""
 
 
-# --------------------- geo helpers ---------------------
+def _price_fix_to_pence(price_raw: Any) -> tuple[Any, int]:
+    """Correct fuel prices submitted in pounds (e.g. 1.45) rather than pence (145.0)."""
+    if price_raw in (None, ""):
+        return price_raw, 0
+    try:
+        d = Decimal(str(price_raw))
+    except (InvalidOperation, ValueError):
+        return price_raw, 0
+
+    if d < Decimal("2"):
+        d = (d * Decimal("100")).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+        return float(d), 1
+    try:
+        return float(d), 0
+    except Exception:
+        return price_raw, 0
 
 
-def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Calculate the great-circle distance between two points on Earth.
-
-    Uses the Haversine formula, which is accurate to within ~0.3% for the
-    distances involved in fuel station proximity searches.
-
-    Args:
-        lat1: Latitude of point 1 in decimal degrees.
-        lon1: Longitude of point 1 in decimal degrees.
-        lat2: Latitude of point 2 in decimal degrees.
-        lon2: Longitude of point 2 in decimal degrees.
-
-    Returns:
-        Distance in kilometres.
-    """
-    # Mean Earth radius in km (WGS-84 mean radius)
-    r = 6371.0088
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dlat = math.radians(lat2 - lat1)
-    dlon = math.radians(lon2 - lon1)
-    a = math.sin(dlat / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlon / 2) ** 2
-    return 2 * r * math.asin(math.sqrt(a))
-
-
-# --------------------- filesystem / locking ---------------------
+# --------------------- Filesystem & Locking ---------------------
 
 
 @dataclass
 class Paths:
-    """Resolved filesystem paths for all files in the working directory.
-
-    Attributes:
-        work_dir:    Root working directory.
-        state_file:  Cached station and price data (state.json).
-        token_file:  OAuth token storage (token.json).
-        lock_file:   Inter-process lock file (state.lock).
-        config_file: Optional user configuration (config.json).
-    """
-
     work_dir: Path
     state_file: Path
     token_file: Path
@@ -419,14 +249,6 @@ class Paths:
 
 
 def make_paths(work_dir: str) -> Paths:
-    """Derive all working file paths from a single directory string.
-
-    Args:
-        work_dir: Absolute or relative path to the working directory.
-
-    Returns:
-        A Paths dataclass with all derived file paths populated.
-    """
     d = Path(work_dir)
     return Paths(
         work_dir=d,
@@ -438,36 +260,13 @@ def make_paths(work_dir: str) -> Paths:
 
 
 class FileLock:
-    """Exclusive advisory file lock using fcntl, for multi-process safety.
-
-    Multiple Home Assistant command_line sensors may invoke this script
-    concurrently.  The lock prevents two processes from writing to state.json
-    simultaneously, which would corrupt the cache.
-
-    Usage::
-
-        with FileLock(paths.lock_file):
-            # safe to read and write state here
-    """
+    """Exclusive advisory file lock using fcntl for multi-process safety."""
 
     def __init__(self, lock_path: Path) -> None:
-        """Initialise with the path to use as the lock file.
-
-        Args:
-            lock_path: Path to create and lock (does not need to exist).
-        """
         self.lock_path = lock_path
         self.fd = None
 
     def __enter__(self) -> FileLock:
-        """Acquire an exclusive lock, blocking until it is available.
-
-        Creates the parent directory if necessary, opens the lock file,
-        and blocks via LOCK_EX until no other process holds the lock.
-
-        Returns:
-            self, for use in 'with' statements.
-        """
         self.lock_path.parent.mkdir(parents=True, exist_ok=True)
         self.fd = open(self.lock_path, "w")
         fcntl.flock(self.fd, fcntl.LOCK_EX)
@@ -476,16 +275,6 @@ class FileLock:
     def __exit__(
         self, exc_type: type | None, exc: BaseException | None, tb: Any | None
     ) -> None:
-        """Release the lock and close the file descriptor.
-
-        Always releases the lock even if an exception occurred inside the
-        'with' block, to prevent deadlocks between concurrent sensor processes.
-
-        Args:
-            exc_type: Exception class, or None.
-            exc:      Exception instance, or None.
-            tb:       Traceback, or None.
-        """
         try:
             fcntl.flock(self.fd, fcntl.LOCK_UN)
         finally:
@@ -495,27 +284,11 @@ class FileLock:
                 pass
 
 
-# --------------------- http / retries ---------------------
+# --------------------- HTTP & Retries ---------------------
 
 
 class AuthError(Exception):
-    """Raised when the API returns a 401 or 403 response.
-
-    Separates authentication failures from transient server errors so that
-    the retry logic can handle them differently: auth errors trigger a token
-    refresh rather than a simple backoff-and-retry.
-
-    Attributes:
-        response: The requests.Response that triggered the error, if available.
-    """
-
     def __init__(self, message: str, response: requests.Response | None = None) -> None:
-        """Initialise with an error message and optional response object.
-
-        Args:
-            message:  Human-readable description of the auth failure.
-            response: The HTTP response that caused the error.
-        """
         super().__init__(message)
         self.response = response
 
@@ -532,38 +305,7 @@ def request_with_retry(
     backoff_base: float = DEFAULTS["http_backoff_base"],
     backoff_jitter: float = DEFAULTS["http_backoff_jitter"],
 ) -> requests.Response:
-    """Execute an HTTP request with exponential backoff retry for transient failures.
-
-    Retries on network errors and on HTTP status codes in RETRYABLE_STATUS
-    (429, 5xx).  Auth errors (401, 403) are raised immediately without retry
-    so that the caller can obtain a new token before re-attempting.
-
-    Sleep duration is calculated as::
-
-        min(30, backoff_base ** attempt + backoff_jitter * (0.5 + attempt % 3 / 3))
-
-    This produces a gently increasing delay with a small jitter to spread
-    load from concurrent sensor processes hitting the API simultaneously.
-
-    Args:
-        method:         HTTP method string (e.g. 'GET', 'POST').
-        url:            Full URL to request.
-        headers:        Request headers dict.
-        params:         Optional query string parameters.
-        json_body:      Optional JSON request body (sent as application/json).
-        timeout:        Request timeout in seconds.
-        retries:        Maximum number of attempts (including the first).
-        backoff_base:   Base for exponential backoff calculation.
-        backoff_jitter: Multiplier for the jitter term.
-
-    Returns:
-        A successful requests.Response object.
-
-    Raises:
-        AuthError:               On HTTP 401 or 403 (not retried).
-        requests.HTTPError:      On non-retryable HTTP errors after all attempts.
-        requests.RequestException: On network-level failures after all attempts.
-    """
+    """Execute HTTP request with exponential backoff retry for transient failures."""
     last_exc: Exception | None = None
     for attempt in range(retries):
         try:
@@ -575,17 +317,10 @@ def request_with_retry(
                 json=json_body,
                 timeout=timeout,
             )
-
-            # Auth failures are not retryable; raise immediately for token refresh
             if resp.status_code in (401, 403):
                 raise AuthError(f"Auth HTTP {resp.status_code}", response=resp)
-
-            # 404 is not retryable; raise immediately so callers can handle it
-            # (e.g. fetch_all_batches treats it as clean end-of-pagination)
             if resp.status_code == 404:
                 raise requests.HTTPError("HTTP 404 Not Found", response=resp)
-
-            # Server errors and rate limits get exponential backoff
             if resp.status_code in RETRYABLE_STATUS:
                 raise requests.HTTPError(
                     f"Retryable HTTP {resp.status_code}", response=resp
@@ -593,31 +328,20 @@ def request_with_retry(
             resp.raise_for_status()
             return resp
         except Exception as e:
-            # Auth errors propagate immediately without retry
             if isinstance(e, AuthError):
                 raise
-
-            # 404 propagates immediately — retrying a missing resource is pointless,
-            # and fetch_all_batches needs to catch it as end-of-pagination
             if (
                 isinstance(e, requests.HTTPError)
                 and getattr(getattr(e, "response", None), "status_code", None) == 404
             ):
                 raise
-
             last_exc = e
-
-            # Final attempt exhausted; re-raise so caller can handle
             if attempt == retries - 1:
                 raise
-            try:
-                status = getattr(getattr(e, "response", None), "status_code", None)
-            except Exception:
-                status = None
+            status = getattr(getattr(e, "response", None), "status_code", None)
             debug_print(
                 f"HTTP retry {attempt + 1}/{retries - 1} for {method} {url} (status={status}): {e}"
             )
-            # Exponential backoff with per-attempt jitter, capped at 30s
             sleep_s = (backoff_base**attempt) + (
                 backoff_jitter * (0.5 + (attempt % 3) / 3)
             )
@@ -627,21 +351,10 @@ def request_with_retry(
     raise RuntimeError("request_with_retry: unreachable")
 
 
-# --------------------- json helpers ---------------------
+# --------------------- JSON & Config Helpers ---------------------
 
 
 def load_json(path: Path) -> dict[str, Any] | None:
-    """Load and parse a JSON file, returning None if the file is missing or corrupt.
-
-    Designed to be safe for reading potentially absent or partially-written
-    cache files without raising exceptions.
-
-    Args:
-        path: Path to the JSON file.
-
-    Returns:
-        Parsed dict, or None on any error.
-    """
     if not path.exists():
         return None
     try:
@@ -651,91 +364,33 @@ def load_json(path: Path) -> dict[str, Any] | None:
 
 
 def save_json(path: Path, data: dict[str, Any]) -> None:
-    """Write a dict to a JSON file, creating parent directories as needed.
-
-    Writes the full file in one call.  For truly atomic writes a temporary
-    file + rename would be needed, but for our use case the file lock provides
-    sufficient protection against concurrent corruption.
-
-    Args:
-        path: Destination file path.
-        data: Dict to serialise.
-    """
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
 
-def load_config(path: str) -> dict[str, Any]:
-    """Load a JSON configuration file, returning an empty dict on any failure.
-
-    Args:
-        path: Path to the config file as a string.
-
-    Returns:
-        Configuration dict, or {} if the file is absent, unreadable, or invalid.
-    """
-    p = Path(path)
-    if not p.exists():
+def load_config_from_dir(work_dir: str) -> dict[str, Any]:
+    cfg_path = Path(work_dir) / "config.json"
+    if not cfg_path.exists():
         return {}
     try:
-        v = json.loads(p.read_text(encoding="utf-8"))
-        # Only accept a top-level dict; reject arrays or scalars
+        v = json.loads(cfg_path.read_text(encoding="utf-8"))
         return v if isinstance(v, dict) else {}
     except Exception:
         return {}
 
 
-def load_config_from_dir(work_dir: str) -> dict[str, Any]:
-    """Convenience wrapper: load config.json from the given working directory.
-
-    Args:
-        work_dir: Path to the working directory.
-
-    Returns:
-        Configuration dict, or {} if config.json is absent or invalid.
-    """
-    cfg_path = Path(work_dir) / "config.json"
-    if not cfg_path.exists():
-        return {}
-    return load_config(str(cfg_path))
-
-
-# --------------------- OAuth token manager ---------------------
+# --------------------- OAuth Token Manager ---------------------
 
 
 def get_access_token(
     paths: Paths, client_id: str, client_secret: str, *, force_refresh: bool = False
 ) -> str:
-    """Obtain a valid OAuth access token, using the cache where possible.
-
-    Token acquisition strategy (in order):
-    1. Return the cached access token if it is still valid (with a 30s margin).
-    2. Use the refresh token to obtain a new access token without client_secret.
-    3. Fall back to a full credential exchange if refresh fails or is absent.
-
-    Persists token data to token.json after each successful acquisition so
-    that subsequent invocations (including from concurrent HA sensors) can
-    reuse the same token.
-
-    Args:
-        paths:         Resolved file paths for the working directory.
-        client_id:     API client identifier.
-        client_secret: API client secret.
-        force_refresh: If True, skip the cached token check and re-acquire.
-
-    Returns:
-        A valid access token string.
-
-    Raises:
-        Various requests exceptions if all token acquisition attempts fail.
-    """
+    """Obtain a valid OAuth access token, handling cached tokens and refresh tokens."""
     token = load_json(paths.token_file) or {}
     access = token.get("access_token")
     expires_at = parse_dt_maybe(token.get("expires_at"))
     refresh = token.get("refresh_token")
 
-    # Use cached token if still valid (with 30s safety margin to avoid using
-    # a token that expires mid-request)
     if (
         (not force_refresh)
         and access
@@ -745,7 +400,6 @@ def get_access_token(
         debug_print("OAuth: using cached access_token")
         return access
 
-    # Try refresh token flow first — avoids sending the client_secret on the wire
     if refresh:
         try:
             debug_print("OAuth: refreshing access_token using refresh_token")
@@ -758,13 +412,9 @@ def get_access_token(
                 json_body=payload,
             )
             data = resp.json()
-            # API may wrap the token in a 'data' envelope or return it directly
             token_data = data.get("data", data)
-
             access_token = token_data["access_token"]
             expires_in = int(token_data.get("expires_in", 3600))
-
-            # Persist new access token, keeping the existing refresh token
             new_token = {
                 "access_token": access_token,
                 "refresh_token": refresh,
@@ -778,9 +428,7 @@ def get_access_token(
             debug_print(
                 f"OAuth: refresh failed ({e}), falling back to full token generation"
             )
-            # Fall through to full credential exchange below
 
-    # No valid refresh token available; perform full client credentials exchange
     debug_print("OAuth: generating new access_token")
     url = f"{BASE_URL}/api/v1/oauth/generate_access_token"
     payload = {"client_id": client_id, "client_secret": client_secret}
@@ -792,12 +440,9 @@ def get_access_token(
     )
     data = resp.json()
     token_data = data.get("data", data)
-
     access_token = token_data["access_token"]
     expires_in = int(token_data.get("expires_in", 3600))
     refresh_token = token_data.get("refresh_token")
-
-    # Persist both access and refresh tokens for future use
     new_token = {
         "access_token": access_token,
         "refresh_token": refresh_token,
@@ -809,7 +454,7 @@ def get_access_token(
     return access_token
 
 
-# --------------------- API fetch (batched) ---------------------
+# --------------------- API Batch Fetcher ---------------------
 
 
 def fetch_all_batches(
@@ -820,61 +465,35 @@ def fetch_all_batches(
     batch_sleep: float = DEFAULTS["batch_sleep_seconds"],
     refresh_token_fn: Any | None = None,
 ) -> list[dict[str, Any]]:
-    """Fetch all pages from a paginated API endpoint, returning the combined rows.
-
-    The Fuel Finder API returns results in batches of up to 500 rows each.
-    This function iterates through batch numbers (starting at 1) until a batch
-    returns fewer than 500 rows, which indicates the final page.
-
-    If the token expires mid-pagination, ``refresh_token_fn`` is called to
-    obtain a new token and the failed batch is retried once.
-
-    Args:
-        token:             Bearer access token for authorisation.
-        path:              API path, e.g. '/api/v1/pfs/fuel-prices'.
-        params:            Additional query parameters (e.g. timestamp filters).
-        batch_sleep:       Seconds to sleep between batch requests to avoid
-                           rate limiting.
-        refresh_token_fn:  Callable that returns a fresh access token; used to
-                           recover from mid-pagination auth failures.
-
-    Returns:
-        A flat list of all row dicts across all pages.
-    """
+    """Fetch all pages from a paginated API endpoint, returning combined rows."""
     t0 = time.time()
     debug_print(f"API fetch start: {path} params={params}")
     headers = {"accept": "application/json", "authorization": f"Bearer {token}"}
     out: list[dict[str, Any]] = []
     batch = 1
     while True:
-        # Build query params for this page; batch-number is 1-indexed
         qp = dict(params or {})
         qp["batch-number"] = str(batch)
         url = f"{BASE_URL}{path}"
-
         try:
             resp = request_with_retry("GET", url, headers=headers, params=qp)
         except AuthError as e:
-            # Token expired mid-pagination; force refresh and retry this batch
             if refresh_token_fn is None:
                 raise
             debug_print(
                 f"Auth failed ({getattr(e.response, 'status_code', None)}). "
                 f"Forcing token refresh and retrying batch {batch}."
             )
-            token = refresh_token_fn()  # obtain new access token
+            token = refresh_token_fn()
             headers = {"accept": "application/json", "authorization": f"Bearer {token}"}
             resp = request_with_retry("GET", url, headers=headers, params=qp)
         except requests.HTTPError as e:
-            # API now returns 404 for an out-of-range batch number, which means
-            # we have already consumed all available pages — treat as clean end-of-results.
             if getattr(e.response, "status_code", None) == 404:
                 debug_print(f"  batch {batch}: 404 received — end of results")
                 break
             raise
 
         response_body = resp.json()
-        # Handle both wrapped ({'success': True, 'data': [...]}) and unwrapped ([...]) responses
         if isinstance(response_body, dict) and "data" in response_body:
             data = response_body.get("data", [])
         elif isinstance(response_body, list):
@@ -886,32 +505,21 @@ def fetch_all_batches(
             data = []
         out.extend(data)
         debug_print(f"  batch {batch}: {len(data)} rows (total {len(out)})")
-        # A batch of fewer than 500 rows means this was the last page
         if len(data) < 500:
             break
         batch += 1
-        # Pause between pages to stay well within the API's rate limits
         time.sleep(batch_sleep)
     debug_print(f"API fetch done: {path} rows={len(out)} in {time.time() - t0:.2f}s")
     return out
 
 
-# --------------------- cache model ---------------------
+# --------------------- Cache State Model ---------------------
 
 
 def empty_state() -> dict[str, Any]:
-    """Return an initialised blank state structure with all required keys.
-
-    This defines the canonical shape of state.json.  All keys must be present
-    to avoid KeyError or AttributeError when the cache is freshly created or
-    has been invalidated.
-
-    Returns:
-        A dict with empty stations/prices dicts and default meta fields.
-    """
     return {
-        "stations": {},  # node_id -> station object
-        "prices": {},  # node_id -> {fuel_type -> {price, price_last_updated}}
+        "stations": {},
+        "prices": {},
         "meta": {
             "stations_baseline_at": None,
             "stations_last_incremental_at": None,
@@ -928,18 +536,6 @@ def empty_state() -> dict[str, Any]:
 
 
 def load_state(paths: Paths) -> dict[str, Any]:
-    """Load the cached state from disk, filling in any missing meta keys.
-
-    Adds any new meta keys with safe defaults so that the schema can be
-    extended without invalidating existing cache files (forward-compatible).
-
-    Args:
-        paths: Resolved file paths for the working directory.
-
-    Returns:
-        The loaded state dict, or a fresh empty_state() if the file is
-        missing, corrupt, or has an unexpected structure.
-    """
     data = load_json(paths.state_file)
     if (
         isinstance(data, dict)
@@ -947,36 +543,21 @@ def load_state(paths: Paths) -> dict[str, Any]:
         and "prices" in data
         and "meta" in data
     ):
-        # Back-fill any meta keys added in later versions of the script
         meta = data.get("meta", {}) or {}
         meta.setdefault("price_fix_count_total", 0)
         meta.setdefault("price_fix_count_last_run", 0)
         meta.setdefault("price_fix_last_run_at", None)
         data["meta"] = meta
         return data
-    # File missing, corrupt, or wrong shape — start fresh
     return empty_state()
 
 
 def save_state(paths: Paths, state: dict[str, Any]) -> None:
-    """Persist the current state to disk, updating the modified timestamp.
-
-    Args:
-        paths: Resolved file paths for the working directory.
-        state: State dict to serialise.
-    """
     state["meta"]["updated_at"] = iso_utc(utc_now())
     save_json(paths.state_file, state)
 
 
 def invalidate_cache(paths: Paths) -> None:
-    """Delete the existing state file and replace it with an empty state.
-
-    Used by --full-refresh to force re-download of all baseline data.
-
-    Args:
-        paths: Resolved file paths for the working directory.
-    """
     paths.work_dir.mkdir(parents=True, exist_ok=True)
     if paths.state_file.exists():
         paths.state_file.unlink()
@@ -984,20 +565,8 @@ def invalidate_cache(paths: Paths) -> None:
 
 
 def cache_stats(state: dict[str, Any]) -> dict[str, Any]:
-    """Build a summary dict of cache health metrics for inclusion in JSON output.
-
-    Collects counts, timestamps, and price-fix statistics from the state meta
-    block.  File sizes are added by the caller after this function returns.
-
-    Args:
-        state: The current state dict.
-
-    Returns:
-        A flat dict of cache health fields.
-    """
     stations = state.get("stations", {}) or {}
     prices = state.get("prices", {}) or {}
-    # Enumerate all fuel types seen across all priced stations
     fuel_types: set[str] = set()
 
     for _, p in prices.items():
@@ -1023,20 +592,10 @@ def cache_stats(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# --------------------- transform / merge ---------------------
+# --------------------- Transforms & Merging ---------------------
 
 
 def stations_to_dict(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """Convert a flat list of station objects to a dict keyed by node_id.
-
-    Stations without a node_id are silently skipped.
-
-    Args:
-        items: Raw list of station dicts from the API.
-
-    Returns:
-        Dict mapping str(node_id) -> station dict.
-    """
     out: dict[str, dict[str, Any]] = {}
     for it in items:
         sid = it.get("node_id")
@@ -1047,88 +606,15 @@ def stations_to_dict(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
 
 
 def merge_station_dict(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
-    """Upsert incremental station updates into the existing cache dict.
-
-    New stations are inserted; existing stations are replaced with the
-    updated record.  No stations are deleted during an incremental merge
-    (deletions are only handled during a baseline rebuild).
-
-    Args:
-        base:    Existing stations dict (node_id -> station).
-        updates: New/updated stations from the incremental fetch.
-
-    Returns:
-        The merged stations dict.
-    """
     base = dict(base or {})
     for sid, obj in (updates or {}).items():
         base[str(sid)] = obj
     return base
 
 
-def _price_fix_to_pence(price_raw: Any) -> tuple[Any, int]:
-    """Detect and correct fuel prices incorrectly entered in pounds rather than pence.
-
-    The API specification requires prices in pence per litre (e.g. 145.9 for
-    £1.459/litre).  Some stations occasionally submit prices in pounds (e.g. 1.459),
-    which would appear as sub-2p fuel.  Any price below 2 is assumed to be in
-    pounds and is multiplied by 100, rounded to one decimal place.
-
-    Args:
-        price_raw: Raw price value from the API (may be int, float, str, or None).
-
-    Returns:
-        A tuple of (corrected_price, fix_count) where fix_count is 1 if a
-        correction was applied, 0 otherwise.  Returns (price_raw, 0) unchanged
-        if the value is None, empty, or cannot be parsed.
-    """
-    if price_raw in (None, ""):
-        return price_raw, 0
-
-    try:
-        d = Decimal(str(price_raw))
-    except (InvalidOperation, ValueError):
-        return price_raw, 0
-
-    # Prices below 2 are almost certainly in pounds, not pence
-    if d < Decimal("2"):
-        d = (d * Decimal("100")).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
-        return float(d), 1
-
-    # Normal pence value: normalise to float for JSON serialisation consistency
-    try:
-        return float(d), 0
-    except Exception:
-        return price_raw, 0
-
-
 def prices_to_dict(
     items: list[dict[str, Any]],
 ) -> tuple[dict[str, dict[str, Any]], str | None, int]:
-    """Convert a flat list of API price records into a nested station->fuel->price dict.
-
-    Also tracks the most recent price timestamp across all records (used as the
-    incremental cursor for subsequent fetches) and counts any price-entry
-    corrections applied.
-
-    The cursor high-water mark is the later of ``price_last_updated`` and
-    ``price_change_effective_timestamp`` for each row, capped at the current
-    wall-clock time.  This ensures that pre-announced future price changes do
-    not advance the cursor beyond now and cause data gaps on the next incremental
-    fetch.
-
-    Args:
-        items: Raw list of price records from the API, each containing a
-               node_id and a fuel_prices list.
-
-    Returns:
-        A three-tuple of:
-        - prices dict: str(node_id) -> {fuel_type -> {price, price_last_updated,
-          price_change_effective_timestamp}}
-        - max_price_last_updated: ISO UTC string of the newest cursor timestamp,
-          or None if no valid timestamps were found.
-        - fix_count: number of pound-to-pence corrections applied.
-    """
     out: dict[str, dict[str, Any]] = {}
     max_dt: datetime | None = None
     now = utc_now()
@@ -1142,7 +628,6 @@ def prices_to_dict(
         fp = it.get("fuel_prices", [])
         if not isinstance(fp, list):
             fp = []
-        # Retrieve any existing prices for this station to merge into
         per_station: dict[str, Any] = out.get(sid, {})
         for row in fp:
             if not isinstance(row, dict):
@@ -1156,7 +641,6 @@ def prices_to_dict(
             plu = row.get("price_last_updated")
             pcet = row.get("price_change_effective_timestamp")
 
-            # Apply pound-to-pence correction if needed
             price, fixed = _price_fix_to_pence(price_raw)
             if fixed:
                 fix_count += 1
@@ -1171,10 +655,6 @@ def prices_to_dict(
                 "price_change_effective_timestamp": pcet,
             }
 
-            # Use the later of price_last_updated and price_change_effective_timestamp
-            # as the cursor contribution for this row, but cap at wall-clock time so
-            # that pre-announced future prices do not push the cursor ahead of now
-            # and create a gap in the next incremental fetch.
             dt_plu = parse_price_dt(plu)
             dt_pcet = parse_price_dt(pcet)
             candidates = [t for t in (dt_plu, dt_pcet) if t is not None]
@@ -1188,22 +668,9 @@ def prices_to_dict(
 
 
 def merge_price_dict(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
-    """Upsert incremental price updates into the existing prices cache.
-
-    For each station in the updates, individual fuel type entries are replaced.
-    Fuel types not present in the update are left unchanged.
-
-    Args:
-        base:    Existing prices dict (node_id -> fuel_type -> price_row).
-        updates: New/updated prices from the incremental fetch.
-
-    Returns:
-        The merged prices dict.
-    """
     base = dict(base or {})
     for sid, fuels in (updates or {}).items():
         sid = str(sid)
-        # Initialise station entry if not already present
         if sid not in base or not isinstance(base.get(sid), dict):
             base[sid] = {}
         for ft, row in (fuels or {}).items():
@@ -1211,19 +678,10 @@ def merge_price_dict(base: dict[str, Any], updates: dict[str, Any]) -> dict[str,
     return base
 
 
-# --------------------- refresh policy ---------------------
+# --------------------- Refresh Policy & Cache Assurance ---------------------
 
 
 def needs_stations_baseline(state: dict[str, Any], days: int) -> bool:
-    """Return True if the stations baseline has never run or has expired.
-
-    Args:
-        state: Current state dict.
-        days:  Maximum age of the baseline in days before re-pulling.
-
-    Returns:
-        True if a full stations pull is required.
-    """
     dt = parse_dt_maybe(state.get("meta", {}).get("stations_baseline_at"))
     if dt is None:
         return True
@@ -1231,15 +689,6 @@ def needs_stations_baseline(state: dict[str, Any], days: int) -> bool:
 
 
 def needs_prices_baseline(state: dict[str, Any], days: int) -> bool:
-    """Return True if the prices baseline has never run or has expired.
-
-    Args:
-        state: Current state dict.
-        days:  Maximum age of the baseline in days before re-pulling.
-
-    Returns:
-        True if a full prices pull is required.
-    """
     dt = parse_dt_maybe(state.get("meta", {}).get("prices_baseline_at"))
     if dt is None:
         return True
@@ -1247,15 +696,6 @@ def needs_prices_baseline(state: dict[str, Any], days: int) -> bool:
 
 
 def needs_stations_incremental(state: dict[str, Any], hours: int) -> bool:
-    """Return True if the stations incremental update is due.
-
-    Args:
-        state: Current state dict.
-        hours: Maximum age of the last incremental fetch in hours.
-
-    Returns:
-        True if an incremental stations fetch is required.
-    """
     dt = parse_dt_maybe(state.get("meta", {}).get("stations_last_incremental_at"))
     if dt is None:
         return True
@@ -1263,15 +703,6 @@ def needs_stations_incremental(state: dict[str, Any], hours: int) -> bool:
 
 
 def needs_prices_incremental(state: dict[str, Any], hours: float) -> bool:
-    """Return True if the prices incremental update is due.
-
-    Args:
-        state: Current state dict.
-        hours: Maximum age of the last incremental fetch in hours (fractional allowed).
-
-    Returns:
-        True if an incremental prices fetch is required.
-    """
     dt = parse_dt_maybe(state.get("meta", {}).get("prices_last_incremental_at"))
     if dt is None:
         return True
@@ -1292,50 +723,7 @@ def ensure_cache(
     batch_sleep_seconds: float = DEFAULTS["batch_sleep_seconds"],
     prices_min_coverage_ratio: float = DEFAULTS["prices_min_coverage_ratio"],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Ensure the local cache is up to date, fetching from the API as needed.
-
-    Implements a two-tier refresh strategy for both stations and prices:
-
-    **Baseline** (periodic full pull):
-      Downloads all records from the API and replaces the cache wholesale.
-      Expensive (many API batches) but necessary to catch deletions and to
-      establish a clean baseline after the cache has aged out.
-
-    **Incremental** (frequent delta pull):
-      Fetches only records changed since the last pull, using a timestamp
-      cursor with a configurable safety overlap to catch late-arriving data.
-      Much cheaper and runs on every invocation when the baseline is current.
-
-    A new stations baseline always triggers a prices baseline too, to keep
-    the two datasets in sync and prune orphaned price entries.
-
-    If a prices baseline returns fewer rows than ``prices_min_coverage_ratio``
-    of the known station count, it is treated as a degraded API response.
-    The existing prices cache is preserved and the baseline timestamps are
-    not updated, so the next scheduled run will retry automatically.
-
-    The entire update is wrapped in an exclusive file lock to prevent two
-    concurrent HA sensor processes from corrupting the cache.
-
-    Args:
-        paths:                      Resolved file paths.
-        client_id:                  API OAuth client ID.
-        client_secret:              API OAuth client secret.
-        full_refresh:               If True, wipe cache and rebuild from scratch.
-        prices_refresh:             If True, force a prices baseline only.
-        stations_baseline_days:     Days between stations full pulls.
-        stations_incremental_hours: Hours between stations incremental pulls.
-        prices_baseline_days:       Days between prices full pulls.
-        prices_incremental_hours:   Hours between prices incremental pulls.
-        batch_sleep_seconds:        Pause between API batch pages.
-        prices_min_coverage_ratio:  Minimum fraction of stations that must have
-                                    prices for a baseline to be accepted.
-
-    Returns:
-        A tuple of (state dict, cache_stats dict).  The stats dict includes
-        file sizes for the state and token files.
-    """
-    # Acquire exclusive lock to prevent concurrent cache writes from HA sensors
+    """Ensure local cache is up to date via baseline or incremental API pulls."""
     with FileLock(paths.lock_file):
         if full_refresh:
             debug_print("Cache: full refresh requested; invalidating state")
@@ -1350,25 +738,15 @@ def ensure_cache(
         token = get_access_token(paths, client_id, client_secret)
 
         def force_refresh_access_token() -> str:
-            """Re-acquire the access token unconditionally; used after mid-run auth errors."""
             return get_access_token(paths, client_id, client_secret, force_refresh=True)
 
-        # Reset the per-run fix counter; will be updated if prices are fetched
         state["meta"]["price_fix_count_last_run"] = 0
-
-        # Track whether stations baseline ran so we can force a prices baseline
         did_stations_baseline = False
 
-        # --- Stations baseline (full pull, periodic) ---
         if needs_stations_baseline(state, stations_baseline_days):
             baseline_at = state.get("meta", {}).get("stations_baseline_at")
-            dt = parse_dt_maybe(baseline_at)
-            age_days = (utc_now() - dt).days if dt else None
             debug_print(
-                f"Stations: baseline refresh required "
-                f"(last_baseline={baseline_at or 'never'}, "
-                f"age={age_days}d if age_days else 'never', "
-                f"threshold={stations_baseline_days}d)"
+                f"Stations: baseline refresh required (last_baseline={baseline_at or 'never'})"
             )
             items = fetch_all_batches(
                 token,
@@ -1378,40 +756,22 @@ def ensure_cache(
             )
             state["stations"] = stations_to_dict(items)
             debug_print(
-                f"Stations: baseline loaded {len(items)} rows; "
-                f"stations now {len(state['stations'])}"
+                f"Stations: baseline loaded {len(items)} rows; stations now {len(state['stations'])}"
             )
             now = iso_utc(utc_now())
             state["meta"]["stations_baseline_at"] = now
-            # Advance incremental cursor to now so the next incremental pull
-            # only fetches changes since this baseline
             state["meta"]["stations_last_incremental_at"] = now
-            debug_print(
-                f"Stations: cursor advanced to {state['meta']['stations_last_incremental_at']}"
-            )
-            # Flag so the prices section knows to baseline too
             did_stations_baseline = True
 
-        # --- Stations incremental (delta since last pull with safety overlap) ---
         elif needs_stations_incremental(state, stations_incremental_hours):
             last = (
                 parse_dt_maybe(state["meta"].get("stations_last_incremental_at"))
                 or utc_now()
             )
-            age_hours = (utc_now() - last).total_seconds() / 3600.0
-            debug_print(
-                f"Stations: incremental refresh "
-                f"(age={age_hours:.2f}h > threshold={stations_incremental_hours}h)"
-            )
-
-            # Wind back the cursor by the safety margin to catch late-arriving records
             safe = last - timedelta(minutes=DEFAULTS["incremental_safety_minutes"])
             params = {"effective-start-timestamp": safe.strftime("%Y-%m-%d %H:%M:%S")}
-
             debug_print(
-                f"Stations: incremental using last={state['meta'].get('stations_last_incremental_at')} "
-                f"safe={safe.isoformat()} "
-                f"threshold={stations_incremental_hours}h"
+                f"Stations: incremental using last={state['meta'].get('stations_last_incremental_at')} safe={safe.isoformat()}"
             )
 
             items = fetch_all_batches(
@@ -1422,25 +782,15 @@ def ensure_cache(
                 batch_sleep=batch_sleep_seconds,
             )
 
-            # Merge any new or updated stations into the existing cache
             if items:
                 upd = stations_to_dict(items)
-                before = len(state.get("stations", {}) or {})
                 state["stations"] = merge_station_dict(state["stations"], upd)
-                after = len(state.get("stations", {}) or {})
-                debug_print(
-                    f"Stations: merged {len(upd)} updates (stations {before}->{after})"
-                )
+                debug_print(f"Stations: merged {len(upd)} updates")
 
-            # Advance cursor to now regardless of whether any records came back
             state["meta"]["stations_last_incremental_at"] = iso_utc(utc_now())
-            debug_print(
-                f"Stations: cursor advanced to {state['meta']['stations_last_incremental_at']}"
-            )
         else:
             debug_print("Stations: no refresh needed")
 
-        # --- Prices baseline (full pull, also forced after stations baseline) ---
         if (
             did_stations_baseline
             or prices_refresh
@@ -1448,10 +798,7 @@ def ensure_cache(
         ):
             baseline_at = state.get("meta", {}).get("prices_baseline_at")
             debug_print(
-                f"Prices: baseline refresh required "
-                f"(did_stations_baseline={did_stations_baseline}, "
-                f"last_baseline={baseline_at or 'never'}, "
-                f"threshold={prices_baseline_days}d)"
+                f"Prices: baseline refresh required (last_baseline={baseline_at or 'never'})"
             )
             items = fetch_all_batches(
                 token,
@@ -1461,92 +808,47 @@ def ensure_cache(
             )
             prices, max_plu, fix_count = prices_to_dict(items)
 
-            # Guard against degraded API responses: if the baseline covers fewer
-            # stations than the minimum coverage ratio, discard it and keep the
-            # existing cache intact.  The baseline timestamps are not updated so
-            # the next scheduled run will retry automatically.
             station_count = len(state.get("stations") or {})
             min_expected = int(station_count * prices_min_coverage_ratio)
             if station_count > 0 and len(prices) < min_expected:
                 debug_print(
-                    f"Prices: baseline REJECTED — only {len(prices)} stations priced "
-                    f"vs {station_count} known ({len(prices) / station_count:.0%}), "
-                    f"threshold={prices_min_coverage_ratio:.0%}. "
-                    f"Keeping existing cache; will retry on next run."
+                    f"Prices: baseline REJECTED — only {len(prices)} stations priced vs {station_count} known. Keeping existing cache."
                 )
-                # Skip all state updates for this baseline attempt
-                # did_stations_baseline remains True so the caller knows a
-                # stations baseline ran, but prices are intentionally stale.
             else:
                 state["prices"] = prices
                 debug_print(
-                    f"Prices: baseline accepted {len(items)} rows; "
-                    f"prices now {len(state['prices'])}; max_plu={max_plu}; fixes={fix_count}"
+                    f"Prices: baseline accepted {len(items)} rows; prices now {len(state['prices'])}"
                 )
                 now = iso_utc(utc_now())
                 state["meta"]["prices_baseline_at"] = now
-                # Use the newest price timestamp as the incremental cursor so the
-                # next incremental pull only fetches prices changed after baseline
                 state["meta"]["prices_last_incremental_at"] = max_plu or now
-                debug_print(
-                    f"Prices: cursor advanced to {state['meta']['prices_last_incremental_at']}"
-                )
                 state["meta"]["prices_max_price_last_updated"] = max_plu
 
-                # Update price-fix counters
                 state["meta"]["price_fix_count_last_run"] = int(fix_count)
                 state["meta"]["price_fix_count_total"] = int(
                     state["meta"].get("price_fix_count_total") or 0
                 ) + int(fix_count)
                 state["meta"]["price_fix_last_run_at"] = iso_utc(utc_now())
 
-                # After a stations baseline, prune price entries for stations that
-                # no longer exist in the API (avoids stale data in query results)
                 if did_stations_baseline:
                     station_ids = set((state.get("stations") or {}).keys())
                     price_ids = set((state.get("prices") or {}).keys())
-
                     orph_prices = sorted(price_ids - station_ids)
-                    orph_stns = sorted(station_ids - price_ids)
-
-                    debug_print(
-                        f"Cache: orphan prices (no station): {len(orph_prices)}/{len(price_ids)}; "
-                        f"orphan stations (no price): {len(orph_stns)}/{len(station_ids)}"
-                    )
-
-                    # Remove price entries with no matching station record
                     if orph_prices:
                         for sid in orph_prices:
                             del state["prices"][sid]
                         debug_print(
                             f"Cache: pruned {len(orph_prices)} orphan price entries"
                         )
-                    # Leave orphan stations intact; their prices may arrive in the
-                    # next incremental pull if the API has a processing delay.
-                    # (Commented-out block retained for reference only)
-                    # if orph_stns:
-                    #    for sid in orph_stns:
-                    #        del state["stations"][sid]
-                    #    debug_print(f"Cache: pruned {len(orph_stns)} orphan station entries")
-                    debug_print(
-                        f"Cache: leaving {len(orph_stns)} orphan station entries to await prices"
-                    )
 
-        # --- Prices incremental (delta since last pull with safety overlap) ---
         elif needs_prices_incremental(state, prices_incremental_hours):
             debug_print(f"Prices: incremental refresh (>{prices_incremental_hours}h)")
             last = (
                 parse_dt_maybe(state["meta"].get("prices_last_incremental_at"))
                 or utc_now()
             )
-            # Wind back the cursor by the safety margin to catch late-arriving updates
             safe = last - timedelta(minutes=DEFAULTS["incremental_safety_minutes"])
             params = {"effective-start-timestamp": safe.strftime("%Y-%m-%d %H:%M:%S")}
-            debug_print(
-                f"Prices: incremental using last={state['meta'].get('prices_last_incremental_at')} "
-                f"safe={safe.isoformat()} "
-                f"threshold={prices_incremental_hours}h"
-            )
             items = fetch_all_batches(
                 token,
                 "/api/v1/pfs/fuel-prices",
@@ -1556,51 +858,29 @@ def ensure_cache(
             )
             if items:
                 upd, max_plu, fix_count = prices_to_dict(items)
-                before = len(state.get("prices", {}) or {})
                 state["prices"] = merge_price_dict(state["prices"], upd)
-                after = len(state.get("prices", {}) or {})
-                debug_print(
-                    f"Prices: merged updates for {len(upd)} stations "
-                    f"(prices {before}->{after}); max_plu={max_plu}; fixes={fix_count}"
-                )
-                # If the API returned price timestamps, advance cursor to the newest;
-                # otherwise fall back to wall-clock time to avoid re-fetching the same window
                 if max_plu:
                     state["meta"]["prices_last_incremental_at"] = max_plu
-                    debug_print(
-                        f"Prices: cursor advanced to {state['meta']['prices_last_incremental_at']}"
-                    )
                     state["meta"]["prices_max_price_last_updated"] = max_plu
                 else:
                     state["meta"]["prices_last_incremental_at"] = iso_utc(utc_now())
-                    debug_print(
-                        f"Prices: cursor advanced to {state['meta']['prices_last_incremental_at']}"
-                    )
 
-                # Update price-fix counters for this run
                 state["meta"]["price_fix_count_last_run"] = int(fix_count)
                 state["meta"]["price_fix_count_total"] = int(
                     state["meta"].get("price_fix_count_total") or 0
                 ) + int(fix_count)
                 state["meta"]["price_fix_last_run_at"] = iso_utc(utc_now())
             else:
-                # No incremental data returned; still advance cursor to avoid re-querying
                 state["meta"]["prices_last_incremental_at"] = iso_utc(utc_now())
-                debug_print(
-                    f"Prices: cursor advanced to {state['meta']['prices_last_incremental_at']}"
-                )
                 state["meta"]["price_fix_count_last_run"] = 0
-
         else:
             debug_print("Prices: no refresh needed")
             state["meta"]["price_fix_count_last_run"] = 0
 
         save_state(paths, state)
 
-    # Build cache health stats outside the lock (no writes needed)
     stats = cache_stats(state)
     try:
-        # Append file sizes for diagnostic purposes
         stats["state_file_bytes"] = (
             paths.state_file.stat().st_size if paths.state_file.exists() else 0
         )
@@ -1612,488 +892,15 @@ def ensure_cache(
     return state, stats
 
 
-# --------------------- query ---------------------
-
-
-def compile_res(res: list[str] | None) -> list[re.Pattern] | None:
-    """Compile a list of regex strings into case-insensitive Pattern objects.
-
-    Args:
-        res: List of regex strings, or None/empty list.
-
-    Returns:
-        List of compiled patterns, or None if the input was empty/None.
-        None is used as a sentinel meaning "no filter applied" (pass-through).
-    """
-    if not res:
-        return None
-    out: list[re.Pattern] = []
-    for s in res:
-        out.append(re.compile(s, re.IGNORECASE))
-    return out
-
-
-def any_match(patterns: list[re.Pattern] | None, value: str | None) -> bool:
-    """Test whether a value matches any of the supplied patterns.
-
-    When patterns is None (no filter configured), returns True unconditionally
-    so that the calling code can use this as a simple pass-through gate.
-
-    Args:
-        patterns: Compiled regex patterns, or None to skip filtering.
-        value:    String to test, or None (treated as empty string).
-
-    Returns:
-        True if patterns is None or any pattern matches the value.
-    """
-    if patterns is None:
-        return True
-    v = value or ""
-    return any(p.search(v) for p in patterns)
-
-
-def fuels_match(patterns: list[re.Pattern] | None, fuel_types: Iterable[str]) -> bool:
-    """Test whether any of a station's fuel types matches any of the supplied patterns.
-
-    Used to implement the --re-fuel filter, which selects stations that offer
-    at least one matching fuel type.
-
-    Args:
-        patterns:   Compiled regex patterns, or None to skip filtering.
-        fuel_types: Iterable of fuel type strings from a station record.
-
-    Returns:
-        True if patterns is None, or any pattern matches any fuel type.
-    """
-    if patterns is None:
-        return True
-    # Guard against None values in the fuel_types iterable
-    fts = [str(x) for x in fuel_types if x is not None]
-    return any(p.search(ft) for p in patterns for ft in fts)
-
-
-def station_field(st: dict[str, Any], which: str) -> str:
-    """Extract a named text field from a station dict for regex matching.
-
-    Centralises field access so that filtering code does not need to know
-    the exact API key paths for each filterable attribute.
-
-    Args:
-        st:    Station dict from the cache.
-        which: Logical field name: 'station_id', 'name', 'brand', 'town', or 'postcode'.
-
-    Returns:
-        The field value as a string, or '' if missing or unrecognised.
-    """
-    if which == "station_id":
-        return str(st.get("node_id") or "")
-    if which == "name":
-        return st.get("trading_name") or ""
-    if which == "brand":
-        return st.get("brand_name") or ""
-    if which == "town":
-        return (st.get("location") or {}).get("city") or ""
-    if which == "postcode":
-        return (st.get("location") or {}).get("postcode") or ""
-    return ""
-
-
-def station_latlon(st: dict[str, Any]) -> tuple[float, float] | None:
-    """Extract the (latitude, longitude) pair from a station record.
-
-    Args:
-        st: Station dict from the cache.
-
-    Returns:
-        (lat, lon) float tuple, or None if the coordinates are absent or invalid.
-    """
-    loc = st.get("location") or {}
-    try:
-        lat = float(loc.get("latitude"))
-        lon = float(loc.get("longitude"))
-        return lat, lon
-    except Exception:
-        return None
-
-
-def station_fuel_types(st: dict[str, Any]) -> list[str]:
-    """Return the list of fuel type codes offered by a station.
-
-    Args:
-        st: Station dict from the cache.
-
-    Returns:
-        List of fuel type strings (e.g. ['E10', 'E5', 'B7']), or [] if absent.
-    """
-    f = st.get("fuel_types", [])
-    if isinstance(f, list):
-        return [str(x) for x in f if x is not None]
-    return []
-
-
-def station_max_price_dt(
-    state: dict[str, Any], station_id: str, fuel_type: str | None = None
-) -> datetime | None:
-    """Return the most recent price_last_updated datetime for a station or specific fuel.
-
-    Args:
-        state:      Current state dict.
-        station_id: Station node_id string.
-        fuel_type:  If given, return the timestamp for this fuel only.
-                    If None, return the maximum across all fuels at the station.
-
-    Returns:
-        Most recent price_last_updated as a UTC-aware datetime, or None if unavailable.
-    """
-    prices = (state.get("prices") or {}).get(station_id) or {}
-    if fuel_type is not None:
-        row = prices.get(fuel_type)
-        if isinstance(row, dict):
-            return parse_price_dt(row.get("price_last_updated"))
-        return None
-    dts = [
-        parse_price_dt(row.get("price_last_updated"))
-        for row in prices.values()
-        if isinstance(row, dict)
-    ]
-    valid = [dt for dt in dts if dt is not None]
-    return max(valid) if valid else None
-
-
-def station_price_for(
-    state: dict[str, Any], station_id: str, fuel_type: str
-) -> float | None:
-    """Look up the cached price for a specific fuel at a specific station.
-
-    Args:
-        state:      Current state dict.
-        station_id: Station node_id string.
-        fuel_type:  Fuel type code (e.g. 'E10').
-
-    Returns:
-        Price in pence per litre as a float, or None if not available.
-    """
-    p = (state.get("prices") or {}).get(station_id) or {}
-    row = p.get(fuel_type)
-    if not isinstance(row, dict):
-        return None
-    price_s = row.get("price")
-    if price_s in (None, ""):
-        return None
-    try:
-        return float(price_s)
-    except Exception:
-        return None
-
-
-def query_stations(
-    state: dict[str, Any],
-    *,
-    lat: float | None,
-    lon: float | None,
-    radius_km: float | None,
-    station_ids: list[str] | None,
-    re_name: list[re.Pattern] | None,
-    re_postcode: list[re.Pattern] | None,
-    re_town: list[re.Pattern] | None,
-    re_id: list[re.Pattern] | None,
-    re_brand: list[re.Pattern] | None,
-    re_fuel: list[re.Pattern] | None,
-    sort: str,
-    limit: int,
-    max_price_age_days: float | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Query the cached station data with filtering, sorting, and result limiting.
-
-    Supports two mutually exclusive selection modes:
-    - **Radius search**: finds all stations within radius_km of (lat, lon).
-    - **ID list**: returns only the explicitly specified station IDs.
-
-    Regex filters are applied as AND across categories (name AND postcode AND
-    brand etc.) with OR semantics within each category (any pattern in a
-    category can match).
-
-    The best (cheapest) station for each fuel type across the result set is
-    included in the returned analysis dict.
-
-    Args:
-        state:        Current state dict.
-        lat:          Centre latitude for radius search.
-        lon:          Centre longitude for radius search.
-        radius_km:    Search radius in kilometres.
-        station_ids:  Explicit station IDs to retrieve (skips radius logic).
-        re_name:      Compiled name filter patterns, or None.
-        re_postcode:  Compiled postcode filter patterns, or None.
-        re_town:      Compiled town/city filter patterns, or None.
-        re_id:        Compiled station_id filter patterns, or None.
-        re_brand:     Compiled brand filter patterns, or None.
-        re_fuel:      Compiled fuel type filter patterns, or None.
-        sort:              Sort mode: 'distance', 'cheapest:<FUEL_TYPE>',
-                           'newest', 'oldest', 'newest:<FUEL_TYPE>', or 'oldest:<FUEL_TYPE>'.
-        limit:             Maximum number of results to return.
-        max_price_age_days: If set, stale fuel price entries older than this many days are
-                           dropped from each station's fuel_prices output.  Stations left
-                           with no valid prices after filtering are excluded entirely.
-
-    Returns:
-        A tuple of:
-        - stations_list: List of station dicts enriched with distance,
-          current prices, and a formatted address line.
-        - analysis: Dict containing 'best_fuel': a mapping of fuel_type ->
-          cheapest station dict with price metadata attached.
-
-    Raises:
-        ValueError: If radius search parameters are incomplete.
-    """
-    stations = state.get("stations") or {}
-    chosen: list[tuple[dict[str, Any], float | None]] = []
-
-    # Build initial candidate list: either by explicit IDs or radius search
-    if station_ids:
-        for sid in station_ids:
-            st = stations.get(str(sid))
-            if st:
-                chosen.append((st, None))
-    else:
-        if lat is None or lon is None or radius_km is None:
-            raise ValueError("radius query requires lat, lon, and radius")
-        # Bounding-box pre-filter: reject stations outside the lat/lon rectangle
-        # that encloses the search circle using cheap arithmetic before the
-        # more expensive haversine call.
-        lat_delta = radius_km / 111.0
-        lon_delta = radius_km / (111.0 * math.cos(math.radians(lat)))
-        lat_min = lat - lat_delta
-        lat_max = lat + lat_delta
-        lon_min = lon - lon_delta
-        lon_max = lon + lon_delta
-        for st in stations.values():
-            loc = st.get("location") or {}
-            slat = loc.get("latitude")
-            slon = loc.get("longitude")
-            if slat is None or slon is None:
-                continue
-            try:
-                slat = float(slat)
-                slon = float(slon)
-            except Exception:
-                continue
-            if not (lat_min <= slat <= lat_max and lon_min <= slon <= lon_max):
-                continue
-            d = haversine_km(lat, lon, slat, slon)
-            if d <= radius_km:
-                chosen.append((st, d))
-
-    debug_print(f"Query: initial candidates={len(chosen)}")
-
-    # Apply regex filters: AND logic across filter types, OR within each type
-    filtered: list[tuple[dict[str, Any], float | None]] = []
-    for st, d in chosen:
-        if not any_match(re_name, station_field(st, "name")):
-            continue
-        if not any_match(re_postcode, station_field(st, "postcode")):
-            continue
-        if not any_match(re_town, station_field(st, "town")):
-            continue
-        if not any_match(re_id, station_field(st, "station_id")):
-            continue
-        if not any_match(re_brand, station_field(st, "brand")):
-            continue
-        if not fuels_match(re_fuel, station_fuel_types(st)):
-            continue
-        filtered.append((st, d))
-
-    debug_print(f"Query: after regex filters={len(filtered)}")
-
-    # Pre-compute effective prices (staleness filter applied) for every candidate.
-    # Doing this before the sort means:
-    # - sort keys see exactly the prices that will appear in the output
-    # - --limit is applied after all filtering, so N results are returned rather
-    #   than N minus however many had all-stale prices
-    cutoff_dt: datetime | None = (
-        utc_now() - timedelta(days=max_price_age_days)
-        if max_price_age_days is not None
-        else None
-    )
-
-    all_prices = state.get("prices") or {}
-    effective_prices: dict[str, dict[str, Any]] = {}
-    usable: list[tuple[dict[str, Any], float | None]] = []
-    for st, d in filtered:
-        sid = str(st.get("node_id"))
-        prices_raw = all_prices.get(sid) or {}
-        price_out: dict[str, Any] = {}
-        for f in station_fuel_types(st):
-            row = prices_raw.get(f)
-            if not isinstance(row, dict):
-                continue
-            if cutoff_dt is not None:
-                plu = parse_price_dt(row.get("price_last_updated"))
-                if plu is None or plu < cutoff_dt:
-                    continue
-            price_out[f] = row
-        # With an age filter: exclude stations with no fresh prices at all.
-        # Without an age filter: keep all stations (price_out may be empty if
-        # the API has not yet supplied prices for a newly added station).
-        if cutoff_dt is None or price_out:
-            effective_prices[sid] = price_out
-            usable.append((st, d))
-    filtered = usable
-
-    debug_print(f"Query: after staleness filter={len(filtered)}")
-
-    # Sort using effective_prices so sort keys are consistent with output
-    sort_key = (sort or "").strip()
-
-    def dist_val(d: float | None) -> float:
-        """Return the distance, or infinity for stations without a known distance."""
-        return d if d is not None else float("inf")
-
-    if sort_key == "distance" or sort_key == "":
-        filtered.sort(key=lambda x: dist_val(x[1]))
-    elif sort_key.startswith("cheapest:"):
-        # Sort by price ascending for the specified fuel; distance as tiebreaker
-        fuel = sort_key.split(":", 1)[1].strip()
-
-        def key(item: tuple[dict[str, Any], float | None]) -> tuple[float, float]:
-            st, d = item
-            sid = str(st.get("node_id"))
-            row = effective_prices.get(sid, {}).get(fuel)
-            pv: float | None = None
-            if row is not None and row.get("price") is not None:
-                try:
-                    pv = float(row["price"])
-                except Exception:
-                    pass
-            return (pv if pv is not None else float("inf"), dist_val(d))
-
-        filtered.sort(key=key)
-    elif (
-        sort_key in ("newest", "oldest")
-        or sort_key.startswith("newest:")
-        or sort_key.startswith("oldest:")
-    ):
-        # Sort by price recency: newest = most recently updated first,
-        # oldest = least recently updated first.
-        # Optional :<FUEL_TYPE> suffix anchors the sort to one fuel; without it,
-        # the maximum price_last_updated across all fuels at the station is used.
-        # Using effective_prices means stale prices are already absent, so
-        # oldest:FUEL naturally places stations with no fresh price last.
-        descending = sort_key.startswith("newest")
-        age_fuel = sort_key.split(":", 1)[1].strip() if ":" in sort_key else None
-
-        def age_key(item: tuple[dict[str, Any], float | None]) -> tuple[int, float]:
-            st, d = item
-            sid = str(st.get("node_id"))
-            prices = effective_prices.get(sid) or {}
-            if age_fuel is not None:
-                row = prices.get(age_fuel)
-                dt = parse_price_dt(row.get("price_last_updated")) if row else None
-            else:
-                dts = [
-                    parse_price_dt(r.get("price_last_updated"))
-                    for r in prices.values()
-                    if isinstance(r, dict)
-                ]
-                valid = [t for t in dts if t is not None]
-                dt = max(valid) if valid else None
-            # Stations without a usable timestamp sort last for both directions
-            if dt is None:
-                return (1, 0.0)
-            epoch = dt.timestamp()
-            return (0, -epoch if descending else epoch)
-
-        filtered.sort(key=age_key)
-    else:
-        # Unrecognised sort key; fall back to distance to avoid silent incorrect ordering
-        filtered.sort(key=lambda x: dist_val(x[1]))
-
-    # Cut at limit now — after filtering and sorting, so --limit N always returns
-    # up to N stations that have valid prices
-    filtered = filtered[: max(0, limit)]
-    debug_print(
-        f"Query: sort='{sort_key or 'distance'}' limit={limit} returning={len(filtered)}"
-    )
-
-    # Build output from pre-computed effective_prices — no per-station staleness
-    # check needed here since it was already applied above
-    result: list[dict[str, Any]] = []
-    fuel_seen: set[str] = set()
-
-    for st, d in filtered:
-        sid = str(st.get("node_id"))
-        ft = station_fuel_types(st)
-        price_out = effective_prices.get(sid) or {}
-        fuel_seen |= set(price_out.keys())
-
-        result.append(
-            {
-                "station_id": sid,
-                "name": st.get("trading_name"),
-                "brand": st.get("brand_name"),
-                "phone": st.get("public_phone_number"),
-                "temporary_closure": st.get("temporary_closure"),
-                "permanent_closure": st.get("permanent_closure"),
-                "motorway_service": st.get("is_motorway_service_station"),
-                "supermarket_service": st.get("is_supermarket_service_station"),
-                "location": st.get("location"),
-                "address_display": format_address_line(
-                    st.get("location") or {}, st.get("trading_name") or ""
-                ),
-                "fuel_types": ft,
-                "fuel_prices": price_out,
-                # Round to 3dp to keep JSON tidy while preserving meaningful precision
-                "distance_km": (round(d, 3) if d is not None else None),
-            }
-        )
-
-    # Find the cheapest station for each fuel type across the result set
-    best: dict[str, Any] = {}
-    for fuel in sorted(fuel_seen):
-        best_item: dict[str, Any] | None = None
-        best_price: float | None = None
-        best_plu: str | None = None
-
-        for item in result:
-            row = (item.get("fuel_prices") or {}).get(fuel)
-            if not isinstance(row, dict):
-                continue
-            pv = row.get("price")
-            if pv in (None, ""):
-                continue
-            try:
-                p = float(pv)
-            except Exception:
-                continue
-            if best_price is None or p < best_price:
-                best_price = p
-                best_item = item
-                best_plu = row.get("price_last_updated")
-
-        if best_item is not None and best_price is not None:
-            # Include the full station record plus the winning fuel's price metadata
-            best[fuel] = dict(best_item)
-            best[fuel]["price"] = best_price
-            best[fuel]["price_last_updated"] = best_plu
-            best[fuel]["fuel_type"] = fuel
-
-    return result, {"best_fuel": best}
-
-
-# --------------------- CLI / config resolution ---------------------
+# --------------------- CLI & Exporter ---------------------
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
-    """Define and parse all CLI arguments.
+    """Define CLI arguments."""
+    p = argparse.ArgumentParser(
+        description="UK Fuel Finder API Data Collector & Dumper"
+    )
 
-    Args:
-        argv: Argument list (typically sys.argv[1:]).
-
-    Returns:
-        Parsed argparse.Namespace.
-    """
-    p = argparse.ArgumentParser()
-
-    # Working directory and debug toggle
     p.add_argument(
         "--config-dir",
         default=None,
@@ -2103,118 +910,95 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--debug", action="store_true", help="Enable debug logging to stderr"
     )
 
-    # API credentials (override config.json and environment)
-    p.add_argument("--client-id", default=None)
-    p.add_argument("--client-secret", default=None)
+    p.add_argument("--client-id", default=None, help="OAuth client ID")
+    p.add_argument("--client-secret", default=None, help="OAuth client secret")
 
-    # Cache control flags
     p.add_argument(
         "--full-refresh",
         action="store_true",
-        help="Invalidate cache and rebuild baselines",
+        help="Invalidate cache and rebuild baselines from scratch",
     )
     p.add_argument(
         "--prices-refresh",
         action="store_true",
-        help="Force prices baseline refresh only (keep stations cache)",
+        help="Force prices baseline refresh only",
     )
-    p.add_argument("--health", action="store_true", help="Only output cache stats")
     p.add_argument(
         "--dump",
         action="store_true",
-        help=(
-            "Refresh cache then write all stations (optionally filtered by "
-            "--max-price-age-days) to prices_<date>.json in the work dir. "
-            "Exits 0. No lat/lon required."
-        ),
+        default=True,
+        help="Write all stations with fresh prices to prices_<date>.json in work dir",
     )
-
-    # Output section inhibitors
-    p.add_argument(
-        "--no-health",
-        action="store_true",
-        help="Omit cache/health metadata from output",
-    )
-    p.add_argument(
-        "--no-stations", action="store_true", help="Omit stations array from output"
-    )
-    p.add_argument(
-        "--no-best", action="store_true", help="Omit best_fuel analysis from output"
-    )
-
-    # Query mode: radius search or explicit station IDs
-    p.add_argument("--lat", type=float)
-    p.add_argument("--lon", type=float)
-    p.add_argument("--radius-km", type=float)
-    p.add_argument("--radius-miles", type=float)
-    p.add_argument(
-        "--station-id", action="append", default=[], help="Repeatable station id"
-    )
-
-    # Regex filters (repeatable; OR within each category, AND across categories)
-    p.add_argument("--re-name", action="append", default=[])
-    p.add_argument("--re-postcode", action="append", default=[])
-    p.add_argument("--re-town", action="append", default=[])
-    p.add_argument("--re-id", action="append", default=[])
-    p.add_argument("--re-brand", action="append", default=[])
-    p.add_argument("--re-fuel", action="append", default=[])
-
-    # Staleness filter
     p.add_argument(
         "--max-price-age-days",
         type=float,
         default=None,
         metavar="DAYS",
-        help=(
-            "Exclude fuel prices older than DAYS days from each station's output. "
-            "Stations with no remaining valid prices after filtering are hidden entirely."
-        ),
+        help="Exclude fuel prices older than DAYS days. Stations with no valid prices are omitted.",
     )
-
-    # Sort mode and result count
-    p.add_argument(
-        "--sort",
-        default="distance",
-        help="distance | cheapest:<FUELTYPE> | newest | oldest | newest:<FUELTYPE> | oldest:<FUELTYPE>",
-    )
-    p.add_argument("--limit", type=int, default=10)
 
     return p.parse_args(argv)
 
 
 def resolve_work_dir(args: argparse.Namespace) -> str:
-    """Resolve the working directory from CLI arg, environment variable, or default.
-
-    Priority: --config-dir > UFF_CONFIG_DIR env var > DEFAULTS['config_dir'].
-
-    Args:
-        args: Parsed argparse.Namespace.
-
-    Returns:
-        Resolved working directory path string.
-    """
+    """Resolve working directory from CLI, environment, or default."""
     return args.config_dir or os.environ.get("UFF_CONFIG_DIR") or DEFAULTS["config_dir"]
 
 
-# --------------------- main ---------------------
+def dump_prices_json(
+    state: dict[str, Any],
+    stats: dict[str, Any],
+    paths: Paths,
+    max_price_age_days: float | None,
+) -> tuple[Path, int]:
+    """Write all stations (filtered by max_price_age_days if specified) to prices_YYYY-MM-DD.json."""
+    cutoff_dt: datetime | None = (
+        utc_now() - timedelta(days=max_price_age_days)
+        if max_price_age_days is not None
+        else None
+    )
+    all_stations = state.get("stations") or {}
+    all_prices = state.get("prices") or {}
+    dump_stations: list[dict[str, Any]] = []
+
+    for st in all_stations.values():
+        sid = str(st.get("node_id"))
+        prices_raw = all_prices.get(sid) or {}
+        price_out: dict[str, Any] = {}
+        for ftype, row in prices_raw.items():
+            if not isinstance(row, dict):
+                continue
+            if cutoff_dt is not None:
+                plu = parse_price_dt(row.get("price_last_updated"))
+                if plu is None or plu < cutoff_dt:
+                    continue
+            price_out[ftype] = row
+        if cutoff_dt is not None and not price_out:
+            continue
+
+        st_clean = dict(st)
+        st_clean["address_display"] = format_address_line(
+            st.get("location") or {}, st.get("trading_name") or ""
+        )
+        st_clean["fuel_prices"] = price_out
+        dump_stations.append(st_clean)
+
+    dump_out = {
+        "state": "ok",
+        "generated_at": iso_utc(utc_now()),
+        "cache": stats,
+        "stations": dump_stations,
+    }
+    date_str = utc_now().strftime("%Y-%m-%d")
+    dump_file = paths.work_dir / f"prices_{date_str}.json"
+    dump_file.write_text(json.dumps(dump_out, ensure_ascii=False, indent=2))
+    return dump_file, len(dump_stations)
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Entry point: parse arguments, refresh cache, query, and emit JSON to stdout.
-
-    All user-facing output is written as a single JSON object to stdout.
-    Debug/diagnostic messages go to stderr only.  This separation ensures the
-    output is safe to pipe directly into Home Assistant's command_line sensor.
-
-    Args:
-        argv: Argument list; defaults to sys.argv[1:] if None.
-
-    Returns:
-        Exit code: 0 on success, 2 on error.
-    """
+    """Entry point: refresh cache and export prices_YYYY-MM-DD.json."""
     args = parse_args(argv or sys.argv[1:])
 
-    # Activate debug output if requested (writes to stderr only)
     global DEBUG
     DEBUG = bool(getattr(args, "debug", False))
 
@@ -2223,15 +1007,9 @@ def main(argv: list[str] | None = None) -> int:
 
     debug_print(f"work_dir={work_dir}")
 
-    # Start from DEFAULTS then override with any values found in config.json
     cfg = dict(DEFAULTS)
     cfg.update(load_config_from_dir(work_dir))
 
-    debug_print(
-        f"Config loaded from {paths.config_file if paths.config_file.exists() else 'None'}"
-    )
-
-    # Resolve credentials: CLI flag > config.json > environment variable
     client_id = (
         args.client_id or cfg.get("client_id") or os.environ.get("UFF_CLIENT_ID")
     )
@@ -2241,30 +1019,14 @@ def main(argv: list[str] | None = None) -> int:
         or os.environ.get("UFF_CLIENT_SECRET")
     )
 
-    debug_print(
-        f"Creds sources: client_id={'CLI' if args.client_id else 'config/env'}; "
-        f"client_secret={'CLI' if args.client_secret else 'config/env'}"
-    )
-
-    # Bail early if no credentials are available from any source
     if not client_id or not client_secret:
-        print(
-            json.dumps(
-                {
-                    "state": "error",
-                    "error": "Missing client_id/client_secret (CLI, config.json, or env UFF_CLIENT_ID/UFF_CLIENT_SECRET)",
-                },
-                ensure_ascii=False,
-            )
-        )
+        err_msg = {
+            "state": "error",
+            "error": "Missing client_id/client_secret (CLI args, config.json, or env UFF_CLIENT_ID/UFF_CLIENT_SECRET)",
+        }
+        print(json.dumps(err_msg, ensure_ascii=False))
         return 2
 
-    # Convert miles to km if the user supplied --radius-miles instead of --radius-km
-    radius_km = args.radius_km
-    if radius_km is None and args.radius_miles is not None:
-        radius_km = args.radius_miles * 1.609344
-
-    # Refresh cache (stations + prices) under exclusive file lock
     try:
         state, stats = ensure_cache(
             paths=paths,
@@ -2298,120 +1060,22 @@ def main(argv: list[str] | None = None) -> int:
             ),
         )
     except Exception as e:
-        print(
-            json.dumps(
-                {
-                    "state": "error",
-                    "error": f"Cache refresh failed: {e}",
-                    "generated_at": iso_utc(utc_now()),
-                },
-                ensure_ascii=False,
-            )
-        )
-        return 2
-
-    # Begin assembling the JSON output object
-    out = {"state": "ok"}
-
-    # Include cache health unless suppressed by --no-health
-    if args.health or not args.no_health:
-        debug_print("Cache health: added")
-        out["cache"] = stats
-        out["generated_at"] = iso_utc(utc_now())
-
-    # Health-only mode: emit stats and exit without running a query
-    if args.health:
-        debug_print("Cache health: no other output required")
-        print(json.dumps(out, ensure_ascii=False))
-        return 0
-
-    # Dump mode: write all stations (with optional staleness filter) to a dated
-    # JSON file in the work dir, then exit 0.  No lat/lon/radius required.
-    if args.dump:
-        cutoff_dt: datetime | None = (
-            utc_now() - timedelta(days=args.max_price_age_days)
-            if args.max_price_age_days is not None
-            else None
-        )
-        all_stations = state.get("stations") or {}
-        all_prices = state.get("prices") or {}
-        dump_stations: list[dict] = []
-        for st in all_stations.values():
-            sid = str(st.get("node_id"))
-            prices_raw = all_prices.get(sid) or {}
-            price_out: dict = {}
-            for ftype, row in prices_raw.items():
-                if not isinstance(row, dict):
-                    continue
-                if cutoff_dt is not None:
-                    plu = parse_price_dt(row.get("price_last_updated"))
-                    if plu is None or plu < cutoff_dt:
-                        continue
-                price_out[ftype] = row
-            # With age filter: skip stations that have no fresh prices
-            if cutoff_dt is not None and not price_out:
-                continue
-            dump_stations.append({**st, "fuel_prices": price_out})
-        dump_out = {
-            "state": "ok",
+        err_msg = {
+            "state": "error",
+            "error": f"Cache refresh failed: {e}",
             "generated_at": iso_utc(utc_now()),
-            "cache": stats,
-            "stations": dump_stations,
         }
-        date_str = utc_now().strftime("%Y-%m-%d")
-        dump_file = paths.work_dir / f"prices_{date_str}.json"
-        dump_file.write_text(json.dumps(dump_out, ensure_ascii=False, indent=2))
-        debug_print(f"Dump: wrote {len(dump_stations)} stations to {dump_file}")
-        print(json.dumps({"state": "ok", "dump_file": str(dump_file), "station_count": len(dump_stations)}, ensure_ascii=False))
-        return 0
-
-    # Collect explicit station IDs, stripping any empty strings
-    station_ids = [s for s in (args.station_id or []) if s]
-
-    # Compile all regex filter arguments into pattern lists
-    re_name = compile_res(args.re_name)
-    re_postcode = compile_res(args.re_postcode)
-    re_town = compile_res(args.re_town)
-    re_id = compile_res(args.re_id)
-    re_brand = compile_res(args.re_brand)
-    re_fuel = compile_res(args.re_fuel)
-
-    # Execute the station query against the cached data
-    try:
-        stations_list, analysis = query_stations(
-            state,
-            lat=args.lat,
-            lon=args.lon,
-            radius_km=radius_km,
-            station_ids=station_ids if station_ids else None,
-            re_name=re_name,
-            re_postcode=re_postcode,
-            re_town=re_town,
-            re_id=re_id,
-            re_brand=re_brand,
-            re_fuel=re_fuel,
-            sort=args.sort,
-            limit=args.limit,
-            max_price_age_days=args.max_price_age_days,
-        )
-    except Exception as e:
-        out["state"] = "error"
-        out["error"] = str(e)
-        debug_print("Error: caught exception")
-        print(json.dumps(out, ensure_ascii=False))
+        print(json.dumps(err_msg, ensure_ascii=False))
         return 2
 
-    # Append optional output sections based on suppression flags
-    if not args.no_stations:
-        debug_print("Stations: added")
-        out["stations"] = stations_list
-
-    if not args.no_best:
-        debug_print("Best: added")
-        out.update(analysis)
-
-    # Emit the final JSON response to stdout
-    print(json.dumps(out, ensure_ascii=False))
+    dump_file, count = dump_prices_json(state, stats, paths, args.max_price_age_days)
+    debug_print(f"Dump: wrote {count} stations to {dump_file}")
+    print(
+        json.dumps(
+            {"state": "ok", "dump_file": str(dump_file), "station_count": count},
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 
