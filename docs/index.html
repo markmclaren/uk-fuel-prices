@@ -681,16 +681,20 @@ document.getElementById('exclude-motorway').addEventListener('change', () => { i
 document.getElementById('unit-pence')?.addEventListener('click', () => setDisplayMode('pence'));
 document.getElementById('unit-tank')?.addEventListener('click', () => setDisplayMode('tank'));
 
-// Attempt to auto-fetch prices_latest.json on load for seamless GitHub Pages experience
-fetch('prices_latest.json')
-  .then(res => res.ok ? res.json() : null)
+// Attempt to auto-fetch prices_latest.json on load for seamless experience
+const tryFetchJson = (url) => fetch(url).then(res => res.ok ? res.json() : null);
+const todayStr = new Date().toISOString().split('T')[0];
+
+tryFetchJson('prices_latest.json')
+  .then(data => data || tryFetchJson(`prices_${todayStr}.json`))
   .then(data => {
     if (data && data.stations && Array.isArray(data.stations)) {
       priceData = data;
       zone.classList.add('file-loaded');
-      document.getElementById('upload-label').textContent = '✅ Auto-loaded prices_latest.json';
+      document.getElementById('upload-label').textContent = '✅ Auto-loaded Fuel Price Data';
       document.getElementById('upload-sub').textContent = data.stations.length.toLocaleString() + ' stations loaded';
       document.getElementById('btn-search').disabled = false;
+      if (myLat && myLon) runSearch();
     }
   })
   .catch(() => {});
