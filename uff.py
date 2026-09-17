@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 import sys
@@ -660,6 +661,10 @@ def main(argv: list[str] | None = None) -> int:
             "error": "Missing client_id/client_secret (CLI args, config.json, or env UFF_CLIENT_ID/UFF_CLIENT_SECRET)",
         }, ensure_ascii=False))
         return 2
+
+    cid_hash = hashlib.md5(client_id.encode("utf-8")).hexdigest()[:8]
+    sec_hash = hashlib.md5(client_secret.encode("utf-8")).hexdigest()[:8]
+    debug_print(f"Credentials: client_id len={len(client_id)} (md5={cid_hash}...); client_secret len={len(client_secret)} (md5={sec_hash}...)")
 
     try:
         state, stats = ensure_cache(
