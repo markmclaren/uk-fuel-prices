@@ -20,52 +20,62 @@ The algorithm evaluates every station within your chosen search radius by comput
 
 ### 1. Variables & Inputs
 
-| Symbol | Parameter | Unit | Default |
+| Symbol | Parameter | Unit | Source / Default |
 |---|---|---|---|
-| $P_{\text{pump}}$ | Station Pump Price | pence / litre | (From data) |
-| $d_{\text{one-way}}$ | Distance to Station | miles | (Haversine formula) |
-| $d_{\text{round-trip}}$ | Round-trip Detour Distance ($2 \times d_{\text{one-way}}$) | miles | — |
-| $\text{MPG}$ | Vehicle Fuel Economy | UK Imperial MPG | 40.0 mpg |
-| $V_{\text{tank}}$ | Tank Fill Amount | litres | 40 L |
-| $C_{\text{gal}}$ | UK Gallon Constant | litres / gallon | 4.54609 L |
+| `P_pump` | Station Pump Price | pence / litre | API Data |
+| `d_one_way` | Distance to Station | miles | Haversine Formula |
+| `d_round_trip` | Round-trip Detour Distance ($2 \times d_{\text{one-way}}$) | miles | Calculated |
+| `MPG` | Vehicle Fuel Economy | UK Imperial MPG | 40.0 mpg |
+| `V_tank` | Tank Fill Amount | litres | 40 L |
+| `C_gal` | UK Gallon Constant | litres / gallon | 4.54609 L |
 
 ---
 
 ### 2. Fuel Consumption & Detour Cost
 
-First, determine the total fuel burned during the round trip:
+First, determine the total litres of fuel burned during the round trip ($L_{\text{burn}}$):
 
-$$\text{Litres Burned } (L_{\text{burn}}) = d_{\text{round-trip}} \times \left( \frac{C_{\text{gal}}}{\text{MPG}} \right)$$
+```math
+L_{\text{burn}} = d_{\text{round-trip}} \times \left( \frac{C_{\text{gal}}}{\text{MPG}} \right)
+```
 
-The monetary cost of burning that fuel (evaluated at the target station's price) is:
+The monetary cost of burning that fuel ($C_{\text{detour}}$, in pence) evaluated at the target station's price:
 
-$$\text{Detour Cost (pence) } (C_{\text{detour\_p}}) = L_{\text{burn}} \times P_{\text{pump}}$$
+```math
+C_{\text{detour}} = L_{\text{burn}} \times P_{\text{pump}}
+```
 
 ---
 
 ### 3. Effective True Price & Total Tank Cost
 
-The **Effective Price** ($P_{\text{true\_p}}$, in pence per litre) bakes the detour cost into every litre of fuel bought:
+The **Effective Price** ($P_{\text{true}}$, in pence per litre) bakes the detour cost into every litre of fuel bought:
 
-$$P_{\text{true\_p}} = P_{\text{pump}} + \left( \frac{C_{\text{detour\_p}}}{V_{\text{tank}}} \right)$$
+```math
+P_{\text{true}} = P_{\text{pump}} + \left( \frac{C_{\text{detour}}}{V_{\text{tank}}} \right)
+```
 
-The **Total True Tank Cost** ($T_{\text{true\_GBP}}$, in pounds) is the complete out-of-pocket cost for the trip and fill:
+The **Total True Tank Cost** ($T_{\text{true}}$, in GBP £) is the complete out-of-pocket cost for the trip and fill:
 
-$$T_{\text{true\_GBP}} = \frac{P_{\text{true\_p}} \times V_{\text{tank}}}{100} = \frac{(P_{\text{pump}} \times V_{\text{tank}}) + C_{\text{detour\_p}}}{100}$$
+```math
+T_{\text{true}} = \frac{P_{\text{true}} \times V_{\text{tank}}}{100} = \frac{(P_{\text{pump}} \times V_{\text{tank}}) + C_{\text{detour}}}{100}
+```
 
 ---
 
 ### 4. Savings & Verdict Classification
 
-Comparing a candidate station ($P_{\text{true\_target}}$) against the nearest available station ($P_{\text{true\_nearest}}$):
+Comparing a candidate station ($P_{\text{true-target}}$) against the nearest available station ($P_{\text{true-nearest}}$):
 
-$$\text{Net Saving (£) } (\Delta S_{\text{GBP}}) = \frac{(P_{\text{true\_nearest}} - P_{\text{true\_target}}) \times V_{\text{tank}}}{100}$$
+```math
+\Delta S = \frac{(P_{\text{true-nearest}} - P_{\text{true-target}}) \times V_{\text{tank}}}{100}
+```
 
-Stations are classified into four visual tiers:
+Stations are classified into four visual tiers based on net savings ($\Delta S$ in GBP £):
 - 🔵 **Nearest**: The geographically closest station (baseline reference).
-- 🟢 **Worth It**: Net saving $\Delta S_{\text{GBP}} > +£0.10$.
+- 🟢 **Worth It**: Net saving $\Delta S > +£0.10$.
 - 🟡 **Break-Even**: Net saving within $\pm £0.10$.
-- 🔴 **Not Worth It**: Net saving $\Delta S_{\text{GBP}} < -£0.10$.
+- 🔴 **Not Worth It**: Net saving $\Delta S < -£0.10$.
 
 ---
 
