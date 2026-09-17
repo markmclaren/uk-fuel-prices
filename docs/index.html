@@ -155,12 +155,12 @@
         <div class="loc-row">
           <div class="field">
             <div class="input-wrap">
-              <input type="number" id="lat" placeholder="Latitude" step="any" aria-label="Latitude">
+              <input type="number" id="lat" value="51.5074" placeholder="Latitude" step="any" aria-label="Latitude">
             </div>
           </div>
           <div class="field">
             <div class="input-wrap">
-              <input type="number" id="lon" placeholder="Longitude" step="any" aria-label="Longitude">
+              <input type="number" id="lon" value="-0.1276" placeholder="Longitude" step="any" aria-label="Longitude">
             </div>
           </div>
           <button id="btn-locate" title="Use my current location" aria-label="Detect my location">📍 Locate me</button>
@@ -256,8 +256,8 @@
 'use strict';
 
 let priceData = null;
-let myLat = null;
-let myLon = null;
+let myLat = 51.5074;
+let myLon = -0.1276;
 let results = [];
 let currentAugmented = [];
 let sortMode = 'effective';
@@ -602,24 +602,45 @@ function loadFile(file) {
       document.getElementById('upload-label').textContent = '\u2705 ' + file.name;
       document.getElementById('upload-sub').textContent = data.stations.length.toLocaleString() + ' stations loaded';
       document.getElementById('btn-search').disabled = false;
+      runSearch();
     } catch(err) { alert('Error loading file: ' + err.message); }
   };
   reader.readAsText(file);
 }
 
-function locateMe() {
+function locateMe(silent = false) {
   const btn = document.getElementById('btn-locate');
-  btn.textContent = '\u23F3 Locating\u2026';
-  btn.disabled = true;
+  if (btn) {
+    btn.textContent = '\u23F3 Locating\u2026';
+    btn.disabled = true;
+  }
+  if (!navigator.geolocation) {
+    if (btn) { btn.textContent = '\uD83D\uDCCD Locate me'; btn.disabled = false; }
+    if (!silent) alert('Geolocation is not supported by your browser.');
+    return;
+  }
   navigator.geolocation.getCurrentPosition(
     (pos) => {
-      document.getElementById('lat').value = pos.coords.latitude.toFixed(6);
-      document.getElementById('lon').value = pos.coords.longitude.toFixed(6);
-      btn.textContent = '\uD83D\uDCCD Located \u2713';
-      btn.disabled = false;
-      map?.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 11, duration: 1000 });
+      const lat = parseFloat(pos.coords.latitude.toFixed(6));
+      const lon = parseFloat(pos.coords.longitude.toFixed(6));
+      document.getElementById('lat').value = lat;
+      document.getElementById('lon').value = lon;
+      myLat = lat;
+      myLon = lon;
+      if (btn) {
+        btn.textContent = '\uD83D\uDCCD Located \u2713';
+        btn.disabled = false;
+      }
+      map?.flyTo({ center: [lon, lat], zoom: 11, duration: 1000 });
+      if (priceData) runSearch();
     },
-    (err) => { alert('Could not get location: ' + err.message); btn.textContent = '\uD83D\uDCCD Locate me'; btn.disabled = false; },
+    (err) => {
+      if (btn) {
+        btn.textContent = '\uD83D\uDCCD Locate me';
+        btn.disabled = false;
+      }
+      if (!silent) alert('Could not get location: ' + err.message);
+    },
     { enableHighAccuracy: true, timeout: 10000 }
   );
 }
@@ -706,12 +727,13 @@ tryFetchJson('prices_latest.json')
       document.getElementById('upload-label').textContent = '✅ Auto-loaded Fuel Price Data';
       document.getElementById('upload-sub').textContent = data.stations.length.toLocaleString() + ' stations loaded';
       document.getElementById('btn-search').disabled = false;
-      if (myLat && myLon) runSearch();
+      runSearch();
     }
   })
   .catch(() => {});
 
 initMap();
+locateMe(true);
 </script>
 </body>
 </html>
