@@ -6,3 +6,7 @@ __pycache__/
 .storage/
 state.json
 state.lock
+UK-Fuel-Finder/
+.DS_Store
+prices_*.json
+!docs/prices_*.json
