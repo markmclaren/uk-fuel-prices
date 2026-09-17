@@ -250,8 +250,8 @@ def get_access_token(
         debug_print("OAuth: using cached access_token")
         return access
 
-    debug_print("OAuth: generating new access_token")
     url = f"{base_url.rstrip('/')}/api/v1/oauth/generate_access_token"
+    debug_print(f"OAuth: generating new access_token at {url}")
     payload = {"client_id": client_id, "client_secret": client_secret}
     resp = request_with_retry("POST", url, headers={"accept": "application/json"}, json_body=payload)
     data = resp.json()
@@ -285,7 +285,6 @@ def fetch_all_batches(
 ) -> list[dict[str, Any]]:
     """Fetch all pages from a paginated API endpoint using stdlib urllib."""
     t0 = time.time()
-    debug_print(f"API fetch start: {path} params={params}")
     headers = {"accept": "application/json", "authorization": f"Bearer {token}"}
     out: list[dict[str, Any]] = []
     batch = 1
@@ -294,6 +293,8 @@ def fetch_all_batches(
     while True:
         qp = {**base_params, "batch-number": str(batch)}
         url = f"{base_url.rstrip('/')}{path}"
+        if batch == 1:
+            debug_print(f"API fetch start: {url} params={params}")
         try:
             resp = request_with_retry("GET", url, headers=headers, params=qp)
         except AuthError:
