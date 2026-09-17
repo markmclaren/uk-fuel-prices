@@ -29,6 +29,9 @@ The algorithm evaluates every station within your chosen search radius by comput
 | `V_tank` | Tank Fill Amount | litres | 40 L |
 | `C_gal` | UK Gallon Constant | litres / gallon | 4.54609 L |
 
+> [!NOTE]
+> **UK Fuel Unit Peculiarity**: Although the UK phased out gallons at petrol station pumps in the 1980s in favour of litres, UK vehicle fuel economy is still universally measured and understood in **Miles Per Gallon (MPG)** using the UK Imperial gallon ($1\text{ Imp Gal} = 4.54609\text{ Litres}$). The formula bridges this gap by converting litres bought at the pump into trip fuel consumption based on your vehicle's MPG.
+
 ---
 
 ### 2. Fuel Consumption & Detour Cost
