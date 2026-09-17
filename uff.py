@@ -525,6 +525,7 @@ def ensure_cache(
 def parse_args(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="UK Fuel Finder API Data Collector & Dumper")
     p.add_argument("--config-dir", default=None, help="Working directory for config and cache files")
+    p.add_argument("--output-dir", default=None, help="Target directory for exported prices JSON files (e.g. docs)")
     p.add_argument("--debug", action="store_true", help="Enable debug logging to stderr")
     p.add_argument("--client-id", default=None, help="OAuth client ID")
     p.add_argument("--client-secret", default=None, help="OAuth client secret")
@@ -542,8 +543,12 @@ def dump_prices_json(
     paths: Paths,
     max_price_age_days: float | None,
     compact: bool = False,
+    output_dir: Path | None = None,
 ) -> tuple[Path, int]:
-    """Write all stations with fresh prices to prices_YYYY-MM-DD.json."""
+    """Write all stations with fresh prices to prices_YYYY-MM-DD.json and prices_latest.json."""
+    out_dir = output_dir or paths.work_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     cutoff_dt = utc_now() - timedelta(days=max_price_age_days) if max_price_age_days is not None else None
     all_stations = state.get("stations") or {}
     all_prices = state.get("prices") or {}
@@ -572,10 +577,16 @@ def dump_prices_json(
         "cache": stats,
         "stations": dump_stations,
     }
-    dump_file = paths.work_dir / f"prices_{utc_now().strftime('%Y-%m-%d')}.json"
+    dump_file = out_dir / f"prices_{utc_now().strftime('%Y-%m-%d')}.json"
+    latest_file = out_dir / "prices_latest.json"
+
     indent = None if compact else 2
     separators = (",", ":") if compact else None
-    dump_file.write_text(json.dumps(dump_out, ensure_ascii=False, indent=indent, separators=separators), encoding="utf-8")
+    json_bytes = json.dumps(dump_out, ensure_ascii=False, indent=indent, separators=separators)
+
+    dump_file.write_text(json_bytes, encoding="utf-8")
+    latest_file.write_text(json_bytes, encoding="utf-8")
+
     return dump_file, len(dump_stations)
 
 
@@ -587,6 +598,9 @@ def main(argv: list[str] | None = None) -> int:
 
     work_dir = args.config_dir or os.environ.get("UFF_CONFIG_DIR") or DEFAULTS["config_dir"]
     paths = make_paths(work_dir)
+
+    output_dir_str = args.output_dir or os.environ.get("UFF_OUTPUT_DIR")
+    output_dir = Path(output_dir_str) if output_dir_str else None
 
     cfg = dict(DEFAULTS)
     cfg_file = load_json(paths.config_file)
@@ -625,7 +639,9 @@ def main(argv: list[str] | None = None) -> int:
         }, ensure_ascii=False))
         return 2
 
-    dump_file, count = dump_prices_json(state, stats, paths, args.max_price_age_days, compact=args.compact)
+    dump_file, count = dump_prices_json(
+        state, stats, paths, args.max_price_age_days, compact=args.compact, output_dir=output_dir
+    )
     debug_print(f"Dump: wrote {count} stations to {dump_file}")
     print(json.dumps({"state": "ok", "dump_file": str(dump_file), "station_count": count}, ensure_ascii=False))
     return 0
