@@ -128,15 +128,21 @@ export default {
     url.hostname = "www.fuel-finder.service.gov.uk";
     url.protocol = "https:";
 
-    // Strip client IP headers so CloudFront sees request originating from Cloudflare Edge
     const headers = new Headers(request.headers);
     headers.set("Host", "www.fuel-finder.service.gov.uk");
-    headers.delete("cf-connecting-ip");
-    headers.delete("x-forwarded-for");
-    headers.delete("x-real-ip");
-    headers.delete("true-client-ip");
-    headers.delete("cf-ray");
-    headers.delete("cf-visitor");
+
+    // Strip ALL Cloudflare and Forwarding tracking headers that leak US client location (e.g. cf-ipcountry: US)
+    for (const key of Array.from(headers.keys())) {
+      const lower = key.toLowerCase();
+      if (
+        lower.startsWith("cf-") ||
+        lower.startsWith("x-forwarded-") ||
+        lower === "x-real-ip" ||
+        lower === "true-client-ip"
+      ) {
+        headers.delete(key);
+      }
+    }
 
     const init = {
       method: request.method,
