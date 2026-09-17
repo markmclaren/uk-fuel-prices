@@ -67,7 +67,7 @@ def parse_dt_maybe(s: str | None) -> datetime | None:
     if not s:
         return None
     try:
-        dt = datetime.fromisoformat(s)
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
         return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
     except Exception:
         return None
@@ -90,7 +90,7 @@ def _price_fix_to_pence(price_raw: Any) -> float | None:
 # --------------------- Filesystem & Locking ---------------------
 
 
-@dataclass(slots=True)
+@dataclass
 class Paths:
     work_dir: Path
     state_file: Path
