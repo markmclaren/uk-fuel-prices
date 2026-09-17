@@ -155,12 +155,12 @@
         <div class="loc-row">
           <div class="field">
             <div class="input-wrap">
-              <input type="number" id="lat" value="51.5074" placeholder="Latitude" step="any" aria-label="Latitude">
+              <input type="number" id="lat" placeholder="Latitude" step="any" aria-label="Latitude">
             </div>
           </div>
           <div class="field">
             <div class="input-wrap">
-              <input type="number" id="lon" value="-0.1276" placeholder="Longitude" step="any" aria-label="Longitude">
+              <input type="number" id="lon" placeholder="Longitude" step="any" aria-label="Longitude">
             </div>
           </div>
           <button id="btn-locate" title="Use my current location" aria-label="Detect my location">📍 Locate me</button>
@@ -256,8 +256,8 @@
 'use strict';
 
 let priceData = null;
-let myLat = 51.5074;
-let myLon = -0.1276;
+let myLat = null;
+let myLon = null;
 let results = [];
 let currentAugmented = [];
 let sortMode = 'effective';
@@ -627,11 +627,17 @@ function loadFile(file) {
 function locateMe(silent = false) {
   const btn = document.getElementById('btn-locate');
   if (btn) {
-    btn.textContent = '\u23F3 Locating\u2026';
+    btn.textContent = '⏳ Locating…';
     btn.disabled = true;
   }
   if (!navigator.geolocation) {
-    if (btn) { btn.textContent = '\uD83D\uDCCD Locate me'; btn.disabled = false; }
+    if (btn) { btn.textContent = '📍 Locate me'; btn.disabled = false; }
+    if (!myLat || !myLon) {
+      myLat = 51.5074; myLon = -0.1276;
+      document.getElementById('lat').value = '51.5074';
+      document.getElementById('lon').value = '-0.1276';
+      if (priceData) runSearch();
+    }
     if (!silent) alert('Geolocation is not supported by your browser.');
     return;
   }
@@ -644,7 +650,7 @@ function locateMe(silent = false) {
       myLat = lat;
       myLon = lon;
       if (btn) {
-        btn.textContent = '\uD83D\uDCCD Located \u2713';
+        btn.textContent = '📍 Located ✓';
         btn.disabled = false;
       }
       if (priceData) runSearch();
@@ -652,12 +658,18 @@ function locateMe(silent = false) {
     },
     (err) => {
       if (btn) {
-        btn.textContent = '\uD83D\uDCCD Locate me';
+        btn.textContent = '📍 Locate me';
         btn.disabled = false;
+      }
+      if (!myLat || !myLon) {
+        myLat = 51.5074; myLon = -0.1276;
+        document.getElementById('lat').value = '51.5074';
+        document.getElementById('lon').value = '-0.1276';
+        if (priceData) runSearch();
       }
       if (!silent) alert('Could not get location: ' + err.message);
     },
-    { enableHighAccuracy: true, timeout: 10000 }
+    { enableHighAccuracy: false, timeout: 6000, maximumAge: 300000 }
   );
 }
 
@@ -743,7 +755,16 @@ tryFetchJson('prices_latest.json')
       document.getElementById('upload-label').textContent = '✅ Auto-loaded Fuel Price Data';
       document.getElementById('upload-sub').textContent = data.stations.length.toLocaleString() + ' stations loaded';
       document.getElementById('btn-search').disabled = false;
-      runSearch();
+      if (myLat && myLon) {
+        runSearch();
+      } else {
+        const latVal = parseFloat(document.getElementById('lat').value);
+        const lonVal = parseFloat(document.getElementById('lon').value);
+        if (!isNaN(latVal) && !isNaN(lonVal)) {
+          myLat = latVal; myLon = lonVal;
+          runSearch();
+        }
+      }
     }
   })
   .catch(() => {});
