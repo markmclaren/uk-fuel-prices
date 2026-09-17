@@ -1,0 +1,20 @@
+services:
+  fuel_aggregator:
+    build: .
+    # One-shot job: do not restart after exit
+    restart: "no"
+    volumes:
+      # ./config is mounted to /config inside the container.
+      # The script writes all persistent files under:
+      #   /config/.storage/uk_fuel_finder/
+      # which maps to:
+      #   ./config/.storage/uk_fuel_finder/  (on the host)
+      #
+      # Files created:
+      #   state.json  — cached stations + prices (~16 MB)
+      #   token.json  — OAuth access token
+      #   state.lock  — advisory lock (safe to ignore)
+      #   config.json — read by the script (not written)
+      - ./config:/config
+    env_file:
+      - .env

@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UK True Cost Fuel Finder</title>
+  <meta name="description" content="Find the cheapest petrol station near you, accounting for the fuel you'll burn driving there and back.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css" rel="stylesheet">
+  <script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
+  <style>
+    :root {
+      --bg:          #0d1117;
+      --surface:     #161b22;
+      --surface2:    #1c2331;
+      --surface3:    #21293a;
+      --border:      rgba(255,255,255,0.08);
+      --border-bright: rgba(255,255,255,0.16);
+      --text:        #e6edf3;
+      --text-muted:  #7d8590;
+      --accent:      #58a6ff;
+      --accent-glow: rgba(88,166,255,0.15);
+      --green:       #3fb950;
+      --green-glow:  rgba(63,185,80,0.15);
+      --amber:       #d29922;
+      --amber-glow:  rgba(210,153,34,0.12);
+      --red:         #f85149;
+      --red-glow:    rgba(248,81,73,0.12);
+      --radius:      12px;
+      --radius-sm:   8px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 15px; -webkit-font-smoothing: antialiased; }
+    #app { display: grid; grid-template-columns: 440px 1fr; grid-template-rows: 100vh; height: 100vh; overflow: hidden; }
+    #sidebar { background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+    #sidebar-header { padding: 20px 20px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .logo-row { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+    .logo-icon { width: 32px; height: 32px; background: linear-gradient(135deg, #58a6ff, #3fb950); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+    h1 { font-size: 1.1rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--green)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .tagline { font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; }
+    #controls { padding: 16px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; }
+    .control-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field.full { grid-column: 1 / -1; }
+    label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+    .input-wrap { position: relative; display: flex; align-items: center; }
+    input[type="number"], input[type="text"], select { width: 100%; background: var(--surface2); border: 1px solid var(--border-bright); border-radius: var(--radius-sm); color: var(--text); font-family: inherit; font-size: 0.875rem; padding: 7px 10px; outline: none; transition: border-color 0.15s, box-shadow 0.15s; -moz-appearance: textfield; }
+    input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; }
+    input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+    select { cursor: pointer; }
+    .unit { position: absolute; right: 10px; font-size: 0.72rem; color: var(--text-muted); pointer-events: none; }
+    input.has-unit { padding-right: 44px; }
+    .upload-zone { border: 1.5px dashed var(--border-bright); border-radius: var(--radius-sm); padding: 12px; text-align: center; cursor: pointer; transition: border-color 0.2s, background 0.2s; position: relative; }
+    .upload-zone:hover, .upload-zone.drag { border-color: var(--accent); background: var(--accent-glow); }
+    .upload-zone input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .upload-zone-text { font-size: 0.8rem; color: var(--text-muted); line-height: 1.4; }
+    .upload-zone-text strong { color: var(--accent); display: block; font-size: 0.85rem; margin-bottom: 2px; }
+    .file-loaded { border-color: var(--green); background: var(--green-glow); }
+    .file-loaded .upload-zone-text strong { color: var(--green); }
+    .loc-row { display: flex; gap: 8px; align-items: flex-end; }
+    .loc-row .field { flex: 1; }
+    #btn-locate { flex-shrink: 0; height: 34px; padding: 0 12px; background: var(--surface2); border: 1px solid var(--border-bright); border-radius: var(--radius-sm); color: var(--text); font-family: inherit; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: border-color 0.15s, background 0.15s; white-space: nowrap; }
+    #btn-locate:hover { border-color: var(--accent); background: var(--accent-glow); }
+    #btn-search { width: 100%; padding: 10px; background: linear-gradient(135deg, #1f6feb, #238636); border: none; border-radius: var(--radius-sm); color: #fff; font-family: inherit; font-size: 0.9rem; font-weight: 600; cursor: pointer; letter-spacing: 0.02em; transition: opacity 0.15s, transform 0.1s; }
+    #btn-search:hover { opacity: 0.9; }
+    #btn-search:active { transform: scale(0.98); }
+    #btn-search:disabled { opacity: 0.4; cursor: not-allowed; }
+    .sort-bar { display: flex; gap: 6px; padding: 10px 20px; flex-shrink: 0; border-bottom: 1px solid var(--border); }
+    .sort-btn { flex: 1; padding: 6px 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); font-family: inherit; font-size: 0.75rem; font-weight: 500; cursor: pointer; text-align: center; transition: all 0.15s; }
+    .sort-btn.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
+    #results-header { padding: 12px 20px 8px; flex-shrink: 0; }
+    #result-count { font-size: 0.78rem; color: var(--text-muted); }
+    .unit-btn { padding: 3px 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); font-family: inherit; font-size: 0.72rem; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+    .unit-btn.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
+
+    .preset-btn { padding: 2px 7px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); font-family: inherit; font-size: 0.68rem; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+    .preset-btn:hover { border-color: var(--accent); color: var(--text); }
+    .preset-btn.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
+    input[type="range"] { accent-color: var(--accent); height: 5px; border-radius: 3px; background: var(--surface2); outline: none; }
+
+    #results { flex: 1; overflow-y: auto; padding: 0 12px 16px; }
+    #results::-webkit-scrollbar { width: 4px; }
+    #results::-webkit-scrollbar-track { background: transparent; }
+    #results::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
+
+    /* Table layout styling */
+    .table-wrap { width: 100%; overflow-x: auto; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface2); }
+    .data-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; text-align: left; }
+    .data-table th { background: var(--surface3); color: var(--text-muted); padding: 9px 10px; font-weight: 600; text-align: left; cursor: pointer; border-bottom: 1px solid var(--border-bright); user-select: none; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; transition: color 0.15s, background 0.15s; }
+    .data-table th:hover { color: var(--text); background: var(--surface2); }
+    .data-table th.active-th { color: var(--accent); background: rgba(88,166,255,0.08); }
+    .data-table th.num-col, .data-table td.num-col { text-align: right; }
+    .data-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .data-table tr { cursor: pointer; transition: background 0.15s; }
+    .data-table tr:hover { background: var(--surface3); }
+    .data-table tr.selected { background: var(--surface3); outline: 1px solid var(--accent); }
+
+    /* Worth-it status reduced to row left border color + subtle background tint */
+    .data-table tr.status-worth-it td:first-child { border-left: 4px solid var(--green); }
+    .data-table tr.status-breakeven td:first-child { border-left: 4px solid var(--amber); }
+    .data-table tr.status-not-worth td:first-child { border-left: 4px solid var(--red); }
+    .data-table tr.status-nearest td:first-child { border-left: 4px solid var(--accent); }
+
+    .data-table tr.status-worth-it { background: rgba(63, 185, 80, 0.04); }
+    .data-table tr.status-breakeven { background: rgba(210, 153, 34, 0.04); }
+    .data-table tr.status-not-worth { background: rgba(248, 81, 73, 0.04); }
+    .data-table tr.status-nearest { background: rgba(88, 166, 255, 0.04); }
+
+    .state-msg { text-align: center; padding: 40px 20px; color: var(--text-muted); font-size: 0.85rem; line-height: 1.7; }
+    .state-msg .icon { font-size: 2.5rem; margin-bottom: 12px; }
+    .state-msg strong { display: block; color: var(--text); margin-bottom: 6px; font-size: 0.95rem; }
+    #map { width: 100%; height: 100%; }
+    .maplibregl-popup-content { background: var(--surface2) !important; border: 1px solid var(--border-bright) !important; border-radius: var(--radius-sm) !important; color: var(--text) !important; box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important; padding: 12px 14px !important; font-family: 'Inter', sans-serif !important; min-width: 200px; }
+    .maplibregl-popup-tip { display: none !important; }
+    .maplibregl-popup-close-button { color: var(--text-muted) !important; font-size: 16px !important; right: 8px !important; top: 6px !important; }
+    .popup-name { font-weight: 600; font-size: 0.85rem; margin-bottom: 3px; }
+    .popup-brand { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px; }
+    .popup-prices { display: flex; gap: 12px; }
+    .popup-price { display: flex; flex-direction: column; gap: 1px; }
+    .popup-price-label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+    .popup-price-val { font-size: 1rem; font-weight: 700; }
+    @media (max-width: 720px) {
+      #app { grid-template-columns: 1fr; grid-template-rows: auto 45vh; }
+      #sidebar { max-height: 55vh; }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <div class="logo-row">
+        <div class="logo-icon">⛽</div>
+        <h1>True Cost Fuel Finder</h1>
+      </div>
+      <p class="tagline">Finds the cheapest station accounting for fuel burned driving there &amp; back.</p>
+    </div>
+    <div id="controls">
+      <div class="field full">
+        <label>Price Data (uff.py dump)</label>
+        <div class="upload-zone" id="upload-zone">
+          <input type="file" id="file-input" accept=".json" aria-label="Load prices JSON file">
+          <div class="upload-zone-text">
+            <strong id="upload-label">📂 Click to load JSON</strong>
+            <span id="upload-sub">prices_YYYY-MM-DD.json</span>
+          </div>
+        </div>
+      </div>
+      <div class="field full">
+        <label>Your Location (or click on map)</label>
+        <div class="loc-row">
+          <div class="field">
+            <div class="input-wrap">
+              <input type="number" id="lat" placeholder="Latitude" step="any" aria-label="Latitude">
+            </div>
+          </div>
+          <div class="field">
+            <div class="input-wrap">
+              <input type="number" id="lon" placeholder="Longitude" step="any" aria-label="Longitude">
+            </div>
+          </div>
+          <button id="btn-locate" title="Use my current location" aria-label="Detect my location">📍 Locate me</button>
+        </div>
+      </div>
+      <div class="control-row">
+        <div class="field">
+          <label>Fuel Type</label>
+          <select id="fuel-type" aria-label="Fuel type">
+            <option value="E10">E10 (Petrol)</option>
+            <option value="E5">E5 (Premium Petrol)</option>
+            <option value="B7_STANDARD">B7 (Diesel)</option>
+            <option value="B7_PREMIUM">B7 Premium</option>
+            <option value="HVO">HVO</option>
+          </select>
+        </div>
+        <div class="field">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <label>Search Radius</label>
+            <span id="radius-val" style="color:var(--accent);font-weight:700;font-size:0.75rem;">15 km</span>
+          </div>
+          <div class="input-wrap">
+            <input type="number" id="radius" value="15" min="1" max="100" class="has-unit" aria-label="Search radius in km">
+            <span class="unit">km</span>
+          </div>
+        </div>
+      </div>
+      <div class="field full" style="margin-top:-4px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input type="range" id="radius-slider" value="15" min="1" max="100" step="1" aria-label="Radius slider" style="flex:1;cursor:pointer;">
+          <div class="radius-presets" style="display:flex;gap:3px;">
+            <button class="preset-btn" data-r="5">5k</button>
+            <button class="preset-btn" data-r="10">10k</button>
+            <button class="preset-btn active" data-r="15">15k</button>
+            <button class="preset-btn" data-r="25">25k</button>
+            <button class="preset-btn" data-r="50">50k</button>
+          </div>
+        </div>
+      </div>
+      <div class="control-row">
+        <div class="field">
+          <label>Your MPG</label>
+          <div class="input-wrap">
+            <input type="number" id="mpg" value="40" min="1" max="200" step="0.5" class="has-unit" aria-label="Vehicle fuel economy in MPG">
+            <span class="unit">mpg</span>
+          </div>
+        </div>
+        <div class="field">
+          <label>Tank Fill</label>
+          <div class="input-wrap">
+            <input type="number" id="tank" value="40" min="1" max="200" step="1" class="has-unit" aria-label="Litres to fill">
+            <span class="unit">L</span>
+          </div>
+        </div>
+      </div>
+      <div class="field full" style="margin-top:2px;display:flex;flex-direction:column;gap:6px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;font-size:0.8rem;color:var(--text);font-weight:500;">
+          <input type="checkbox" id="exclude-costco" checked style="width:auto;cursor:pointer;">
+          Exclude Costco (membership required)
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;font-size:0.8rem;color:var(--text);font-weight:500;">
+          <input type="checkbox" id="exclude-motorway" checked style="width:auto;cursor:pointer;">
+          Exclude Motorway Services 🛣️
+        </label>
+      </div>
+      <button id="btn-search" disabled>Find Cheapest Stations</button>
+    </div>
+    <div class="sort-bar" id="sort-bar" style="display:none;">
+      <button class="sort-btn active" id="sort-effective" aria-pressed="true">&#8597; True Cost</button>
+      <button class="sort-btn" id="sort-pump" aria-pressed="false">&#8597; Pump Price</button>
+      <button class="sort-btn" id="sort-distance" aria-pressed="false">&#8597; Distance</button>
+    </div>
+    <div id="results-header" style="display:none;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div id="result-count"></div>
+        <div style="display:flex; gap:4px;">
+          <button class="unit-btn active" id="unit-tank" title="Show total price for a full tank in pounds">Full Tank (£)</button>
+          <button class="unit-btn" id="unit-pence" title="Show price in pence per litre">p/L</button>
+        </div>
+      </div>
+    </div>
+    <div id="results">
+      <div class="state-msg">
+        <div class="icon">⛽</div>
+        <strong>Load your price data to start</strong>
+        Load the <code>prices_YYYY-MM-DD.json</code> file generated by the uff.py Docker container, then click <em>Find Cheapest Stations</em>.
+      </div>
+    </div>
+  </div>
+  <div id="map"></div>
+</div>
+<script>
+'use strict';
+
+let priceData = null;
+let myLat = null;
+let myLon = null;
+let results = [];
+let sortMode = 'effective';
+let sortOrder = 'asc';
+let displayMode = 'tank'; // 'tank' or 'pence'
+let selectedId = null;
+let map = null;
+let popup = null;
+
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) * Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function createGeoJSONCircle(centerLon, centerLat, radiusKm, points = 128) {
+  const coords = [];
+  const kmInEqDegrees = 111.32;
+  for (let i = 0; i <= points; i++) {
+    const angle = (i * 360) / points;
+    const rad = (angle * Math.PI) / 180;
+    const dLat = (radiusKm / kmInEqDegrees) * Math.sin(rad);
+    const dLon = (radiusKm / (kmInEqDegrees * Math.cos((centerLat * Math.PI) / 180))) * Math.cos(rad);
+    coords.push([centerLon + dLon, centerLat + dLat]);
+  }
+  return {
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [coords] }
+    }]
+  };
+}
+
+function computeResults(stations, lat, lon, fuelType, mpg, tankL, radiusKm, excludeCostco = true, excludeMotorway = true) {
+  const IMPERIAL_GALLON = 4.54609;
+  const litresPerMile = IMPERIAL_GALLON / mpg;
+  const candidates = [];
+  for (const s of stations) {
+    const brand = (s.brand_name || '').toLowerCase();
+    const name = (s.trading_name || s.brand_name || '').toLowerCase();
+    if (excludeCostco && (name.includes('costco') || brand.includes('costco'))) {
+      continue;
+    }
+    if (excludeMotorway && s.is_motorway_service_station) {
+      continue;
+    }
+    const loc = s.location;
+    if (!loc?.latitude || !loc?.longitude) continue;
+    const fp = s.fuel_prices?.[fuelType];
+    if (!fp?.price) continue;
+    const pumpPrice = fp.price;
+    const distKm = haversine(lat, lon, loc.latitude, loc.longitude);
+    if (distKm > radiusKm) continue;
+    const distMiles = distKm * 0.621371;
+    const roundTripMiles = distMiles * 2;
+    const fuelBurnedL = roundTripMiles * litresPerMile;
+    const detourCostP = fuelBurnedL * pumpPrice;
+    const effectivePrice = pumpPrice + (detourCostP / tankL);
+    candidates.push({
+      id: s.node_id,
+      name: s.trading_name || s.brand_name || 'Unknown',
+      brand: s.brand_name || '',
+      address: [s.location.address_line_1, s.location.city, s.location.postcode].filter(Boolean).join(', '),
+      lat: loc.latitude,
+      lon: loc.longitude,
+      distKm,
+      distMiles,
+      pumpPrice,
+      effectivePrice,
+      detourCostP,
+      fuelBurnedL,
+      isSupermarket: s.is_supermarket_service_station,
+      isMotorway: s.is_motorway_service_station,
+      priceUpdated: fp.price_last_updated,
+    });
+  }
+  return candidates;
+}
+
+function fmt_p(v)     { return v.toFixed(1) + 'p'; }
+function fmt_tank(v, tankL) { return '£' + ((v * tankL) / 100).toFixed(2); }
+function fmt_km(v)    { return v < 1 ? (v * 1000).toFixed(0) + 'm' : v.toFixed(1) + ' km'; }
+function fmt_mi(v)    { return v < 0.1 ? (v * 1760).toFixed(0) + ' yd' : v.toFixed(1) + ' mi'; }
+function fmt_gbp(v)   { return v >= 0 ? '+\u00a3' + v.toFixed(2) : '\u2212\u00a3' + Math.abs(v).toFixed(2); }
+function escHtml(s)   { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function getSaving(s, baselineEffective, tankL) {
+  return (baselineEffective - s.effectivePrice) * tankL / 100;
+}
+
+function getThArrow(col) {
+  if (sortMode !== col) return '<span style="opacity:0.3">↕</span>';
+  return sortOrder === 'asc' ? ' ↑' : ' ↓';
+}
+
+function renderResults() {
+  const container = document.getElementById('results');
+  const sortBar = document.getElementById('sort-bar');
+  const header = document.getElementById('results-header');
+  const countEl = document.getElementById('result-count');
+  const tankL = parseFloat(document.getElementById('tank').value) || 40;
+
+  if (!results.length) {
+    sortBar.style.display = 'none';
+    header.style.display = 'none';
+    container.innerHTML = '<div class="state-msg"><div class="icon">⛽</div><strong>No stations found</strong>Try increasing the search radius or changing the fuel type.</div>';
+    return;
+  }
+
+  sortBar.style.display = 'flex';
+  header.style.display = 'block';
+  updateSortButtons();
+
+  const nearest = [...results].sort((a,b) => a.distKm - b.distKm)[0];
+  const baselineEffective = nearest.effectivePrice;
+
+  const augmented = results.map(s => {
+    const isNearest = s.id === nearest.id;
+    const saving = getSaving(s, baselineEffective, tankL);
+    let statusClass = 'status-not-worth';
+    if (isNearest)          statusClass = 'status-nearest';
+    else if (saving > 0.10) statusClass = 'status-worth-it';
+    else if (saving > -0.10) statusClass = 'status-breakeven';
+    return { ...s, isNearest, saving, statusClass };
+  });
+
+  const dir = sortOrder === 'asc' ? 1 : -1;
+  augmented.sort((a,b) => {
+    if (sortMode === 'effective') return (a.effectivePrice - b.effectivePrice) * dir;
+    if (sortMode === 'pump')      return (a.pumpPrice - b.pumpPrice) * dir;
+    if (sortMode === 'distance')  return (a.distKm - b.distKm) * dir;
+    if (sortMode === 'name')      return a.name.localeCompare(b.name) * dir;
+    return (a.effectivePrice - b.effectivePrice) * dir;
+  });
+
+  countEl.textContent = results.length + ' station' + (results.length !== 1 ? 's' : '') + ' found';
+
+  const isTank = displayMode === 'tank';
+
+  let rowsHtml = augmented.map(s => {
+    const isSel = s.id === selectedId;
+    const pumpMain = isTank ? fmt_tank(s.pumpPrice, tankL) : fmt_p(s.pumpPrice);
+    const pumpSub  = isTank ? fmt_p(s.pumpPrice) : fmt_tank(s.pumpPrice, tankL);
+
+    const effMain  = isTank ? fmt_tank(s.effectivePrice, tankL) : fmt_p(s.effectivePrice);
+    const effSub   = isTank ? fmt_p(s.effectivePrice) : fmt_tank(s.effectivePrice, tankL);
+
+    return '<tr class="' + s.statusClass + (isSel ? ' selected' : '') + '" data-id="' + escHtml(s.id) + '" data-lat="' + s.lat + '" data-lon="' + s.lon + '">' +
+      '<td>' +
+        '<div style="font-weight:600;color:var(--text);line-height:1.2">' + escHtml(s.name) + '</div>' +
+        '<div style="color:var(--text-muted);font-size:0.7rem;margin-top:2px">' + escHtml(s.brand) + '</div>' +
+      '</td>' +
+      '<td class="num-col"><strong>' + pumpMain + '</strong><div style="font-size:0.68rem;color:var(--text-muted);margin-top:1px;">' + pumpSub + '</div></td>' +
+      '<td class="num-col"><strong style="color:var(--green)">' + effMain + '</strong><div style="font-size:0.68rem;color:var(--text-muted);margin-top:1px;">' + effSub + '</div></td>' +
+      '<td class="num-col" style="color:#a5d6ff">' + fmt_mi(s.distMiles) + '</td>' +
+    '</tr>';
+  }).join('');
+
+  const pumpHeaderStr = isTank ? 'Pump Tank' : 'Pump';
+  const effHeaderStr  = isTank ? 'True Tank' : 'True Cost';
+
+  container.innerHTML = '<div class="table-wrap"><table class="data-table">' +
+    '<thead><tr>' +
+      '<th data-sort="name" class="' + (sortMode==='name'?'active-th':'') + '">Station ' + getThArrow('name') + '</th>' +
+      '<th data-sort="pump" class="num-col ' + (sortMode==='pump'?'active-th':'') + '">' + pumpHeaderStr + ' ' + getThArrow('pump') + '</th>' +
+      '<th data-sort="effective" class="num-col ' + (sortMode==='effective'?'active-th':'') + '">' + effHeaderStr + ' ' + getThArrow('effective') + '</th>' +
+      '<th data-sort="distance" class="num-col ' + (sortMode==='distance'?'active-th':'') + '">Dist ' + getThArrow('distance') + '</th>' +
+    '</tr></thead>' +
+    '<tbody>' + rowsHtml + '</tbody>' +
+  '</table></div>';
+
+  container.querySelectorAll('.data-table th').forEach(th => {
+    th.addEventListener('click', () => setSortMode(th.dataset.sort));
+  });
+
+  container.querySelectorAll('.data-table tbody tr').forEach(row => {
+    row.addEventListener('click', () => selectStation(row.dataset.id, parseFloat(row.dataset.lat), parseFloat(row.dataset.lon)));
+  });
+}
+
+function initMap() {
+  map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://tiles.openfreemap.org/styles/dark',
+    center: [-2.0, 54.0],
+    zoom: 5,
+    attributionControl: true,
+  });
+  map.addControl(new maplibregl.NavigationControl(), 'top-right');
+  map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
+  popup = new maplibregl.Popup({ closeButton: true, closeOnClick: false, maxWidth: '260px', offset: [0, -8] });
+
+  map.on('load', () => {
+    map.addSource('radius-circle', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({
+      id: 'radius-circle-fill',
+      type: 'fill',
+      source: 'radius-circle',
+      paint: { 'fill-color': '#58a6ff', 'fill-opacity': 0.08 }
+    });
+    map.addLayer({
+      id: 'radius-circle-stroke',
+      type: 'line',
+      source: 'radius-circle',
+      paint: { 'line-color': '#58a6ff', 'line-width': 2, 'line-dasharray': [4, 3], 'line-opacity': 0.6 }
+    });
+
+    map.addSource('stations', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({ id: 'stations-halo', type: 'circle', source: 'stations', filter: ['!=', ['get', 'id'], '__me__'],
+      paint: { 'circle-radius': 14, 'circle-color': ['match', ['get', 'verdict'], 'worth-it', 'rgba(63,185,80,0.15)', 'breakeven', 'rgba(210,153,34,0.12)', 'not-worth', 'rgba(248,81,73,0.12)', 'nearest', 'rgba(88,166,255,0.15)', 'rgba(255,255,255,0.05)'], 'circle-blur': 1 }
+    });
+    map.addLayer({ id: 'stations-circle', type: 'circle', source: 'stations', filter: ['!=', ['get', 'id'], '__me__'],
+      paint: {
+        'circle-radius': 7,
+        'circle-color': ['match', ['get', 'verdict'], 'worth-it', '#3fb950', 'breakeven', '#d29922', 'not-worth', '#f85149', 'nearest', '#58a6ff', '#7d8590'],
+        'circle-stroke-width': 2,
+        'circle-stroke-color': 'rgba(255,255,255,0.4)'
+      }
+    });
+    map.addLayer({ id: 'stations-label', type: 'symbol', source: 'stations', filter: ['!=', ['get', 'id'], '__me__'],
+      layout: { 'text-field': ['get', 'displayLabel'], 'text-font': ['Noto Sans Bold'], 'text-size': 10, 'text-offset': [0, 1.6], 'text-anchor': 'top', 'text-allow-overlap': false },
+      paint: { 'text-color': '#e6edf3', 'text-halo-color': '#0d1117', 'text-halo-width': 1.5 }
+    });
+    // Me marker
+    map.addLayer({ id: 'me-dot', type: 'circle', source: 'stations', filter: ['==', ['get', 'id'], '__me__'],
+      paint: { 'circle-radius': 8, 'circle-color': '#ffffff', 'circle-stroke-width': 3, 'circle-stroke-color': '#58a6ff', 'circle-blur': 0 }
+    });
+
+    map.on('click', 'stations-circle', (e) => {
+      const f = e.features[0];
+      if (!f) return;
+      selectStation(f.properties.id, f.geometry.coordinates[1], f.geometry.coordinates[0]);
+    });
+
+    map.on('click', (e) => {
+      const features = map.queryRenderedFeatures(e.point, { layers: ['stations-circle'] });
+      if (features.length > 0) return;
+      const { lng, lat } = e.lngLat;
+      document.getElementById('lat').value = lat.toFixed(6);
+      document.getElementById('lon').value = lng.toFixed(6);
+      myLat = lat; myLon = lng;
+      if (priceData) runSearch();
+    });
+
+    map.on('mouseenter', 'stations-circle', () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'stations-circle', () => { map.getCanvas().style.cursor = ''; });
+  });
+}
+
+function updateMapSource() {
+  if (!map || !map.getSource('stations')) return;
+  const nearest = [...results].sort((a,b) => a.distKm - b.distKm)[0];
+  const baselineEffective = nearest?.effectivePrice ?? Infinity;
+  const tankL = parseFloat(document.getElementById('tank').value) || 40;
+  const isTank = displayMode === 'tank';
+
+  const features = results.map(s => {
+    const isNearest = s.id === nearest?.id;
+    const saving = getSaving(s, baselineEffective, tankL);
+    let verdict;
+    if (isNearest)          verdict = 'nearest';
+    else if (saving > 0.10) verdict = 'worth-it';
+    else if (saving > -0.10) verdict = 'breakeven';
+    else                    verdict = 'not-worth';
+
+    const displayLabel = isTank ? fmt_tank(s.pumpPrice, tankL) : fmt_p(s.pumpPrice);
+
+    return { type: 'Feature', geometry: { type: 'Point', coordinates: [s.lon, s.lat] },
+      properties: { id: s.id, name: s.name, brand: s.brand, pumpPrice: s.pumpPrice, effectivePrice: s.effectivePrice, displayLabel, distKm: s.distKm, verdict, saving: saving.toFixed(2) }
+    };
+  });
+
+  if (myLat && myLon) {
+    features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [myLon, myLat] }, properties: { id: '__me__', verdict: 'me' } });
+  }
+
+  map.getSource('stations').setData({ type: 'FeatureCollection', features });
+
+  if (map.getSource('radius-circle')) {
+    if (myLat && myLon) {
+      const rKm = parseFloat(document.getElementById('radius').value) || 15;
+      map.getSource('radius-circle').setData(createGeoJSONCircle(myLon, myLat, rKm));
+    } else {
+      map.getSource('radius-circle').setData({ type: 'FeatureCollection', features: [] });
+    }
+  }
+
+  if (results.length > 0) {
+    const lons = results.map(s => s.lon); const lats = results.map(s => s.lat);
+    if (myLon) lons.push(myLon); if (myLat) lats.push(myLat);
+    map.fitBounds([[Math.min(...lons)-0.01, Math.min(...lats)-0.01],[Math.max(...lons)+0.01, Math.max(...lats)+0.01]], { padding: 60, duration: 800 });
+  }
+}
+
+function selectStation(id, lat, lon) {
+  selectedId = id;
+  document.querySelectorAll('.data-table tbody tr').forEach(r => r.classList.toggle('selected', r.dataset.id === id));
+  document.querySelector('.data-table tbody tr[data-id="' + id + '"]')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  map?.flyTo({ center: [lon, lat], zoom: 14, duration: 700 });
+  const s = results.find(r => r.id === id);
+  const tankL = parseFloat(document.getElementById('tank').value) || 40;
+  if (s && popup && map) {
+    popup.setLngLat([lon, lat]).setHTML(
+      '<div class="popup-name">' + escHtml(s.name) + '</div>' +
+      '<div class="popup-brand">' + escHtml(s.brand) + ' \u00b7 ' + fmt_km(s.distKm) + '</div>' +
+      '<div class="popup-prices">' +
+        '<div class="popup-price"><span class="popup-price-label">Pump price</span><span class="popup-price-val" style="color:var(--text)">' + fmt_tank(s.pumpPrice, tankL) + ' <span style="font-size:0.75rem;font-weight:400;color:var(--text-muted)">(' + fmt_p(s.pumpPrice) + ')</span></span></div>' +
+        '<div class="popup-price"><span class="popup-price-label">True cost</span><span class="popup-price-val" style="color:var(--green)">' + fmt_tank(s.effectivePrice, tankL) + ' <span style="font-size:0.75rem;font-weight:400;color:var(--text-muted)">(' + fmt_p(s.effectivePrice) + ')</span></span></div>' +
+      '</div>'
+    ).addTo(map);
+  }
+  if (map?.getLayer('stations-circle')) {
+    map.setPaintProperty('stations-circle', 'circle-radius', ['case', ['==', ['get', 'id'], id], 10, 7]);
+    map.setPaintProperty('stations-circle', 'circle-stroke-color', ['case', ['==', ['get', 'id'], id], '#ffffff', 'rgba(255,255,255,0.4)']);
+  }
+}
+
+function runSearch() {
+  if (!priceData) return;
+  const lat = parseFloat(document.getElementById('lat').value);
+  const lon = parseFloat(document.getElementById('lon').value);
+  const mpg = parseFloat(document.getElementById('mpg').value);
+  const tankL = parseFloat(document.getElementById('tank').value);
+  const radius = parseFloat(document.getElementById('radius').value);
+  const fuel = document.getElementById('fuel-type').value;
+  const excludeCostco = document.getElementById('exclude-costco')?.checked ?? true;
+  const excludeMotorway = document.getElementById('exclude-motorway')?.checked ?? true;
+  if (isNaN(lat) || isNaN(lon) || isNaN(mpg) || isNaN(tankL) || isNaN(radius)) {
+    alert('Please fill in all fields including your location.');
+    return;
+  }
+  myLat = lat; myLon = lon;
+  results = computeResults(priceData.stations, lat, lon, fuel, mpg, tankL, radius, excludeCostco, excludeMotorway);
+  selectedId = null;
+  popup?.remove();
+  renderResults();
+  updateMapSource();
+}
+
+function loadFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.stations || !Array.isArray(data.stations)) throw new Error('Invalid format: missing stations array');
+      priceData = data;
+      const zone = document.getElementById('upload-zone');
+      zone.classList.add('file-loaded');
+      document.getElementById('upload-label').textContent = '\u2705 ' + file.name;
+      document.getElementById('upload-sub').textContent = data.stations.length.toLocaleString() + ' stations loaded';
+      document.getElementById('btn-search').disabled = false;
+    } catch(err) { alert('Error loading file: ' + err.message); }
+  };
+  reader.readAsText(file);
+}
+
+function locateMe() {
+  const btn = document.getElementById('btn-locate');
+  btn.textContent = '\u23F3 Locating\u2026';
+  btn.disabled = true;
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      document.getElementById('lat').value = pos.coords.latitude.toFixed(6);
+      document.getElementById('lon').value = pos.coords.longitude.toFixed(6);
+      btn.textContent = '\uD83D\uDCCD Located \u2713';
+      btn.disabled = false;
+      map?.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 11, duration: 1000 });
+    },
+    (err) => { alert('Could not get location: ' + err.message); btn.textContent = '\uD83D\uDCCD Locate me'; btn.disabled = false; },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}
+
+function setSortMode(mode) {
+  if (sortMode === mode) {
+    sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortMode = mode;
+    sortOrder = 'asc';
+  }
+  updateSortButtons();
+  renderResults();
+}
+
+function setDisplayMode(mode) {
+  displayMode = mode;
+  document.getElementById('unit-pence')?.classList.toggle('active', mode === 'pence');
+  document.getElementById('unit-tank')?.classList.toggle('active', mode === 'tank');
+  renderResults();
+  updateMapSource();
+}
+
+function setRadius(r) {
+  const val = Math.min(100, Math.max(1, parseFloat(r) || 15));
+  document.getElementById('radius').value = val;
+  document.getElementById('radius-slider').value = val;
+  document.getElementById('radius-val').textContent = val + ' km';
+  document.querySelectorAll('.preset-btn').forEach(b => {
+    b.classList.toggle('active', parseFloat(b.dataset.r) === val);
+  });
+  if (priceData) runSearch();
+}
+
+function updateSortButtons() {
+  const titles = { effective: 'True Cost', pump: 'Pump Price', distance: 'Distance' };
+  ['effective','pump','distance'].forEach(m => {
+    const btn = document.getElementById('sort-' + m);
+    if (!btn) return;
+    const isActive = m === sortMode;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-pressed', String(isActive));
+    const arrow = isActive ? (sortOrder === 'asc' ? ' ↑' : ' ↓') : ' ↕';
+    btn.textContent = titles[m] + arrow;
+  });
+}
+
+document.getElementById('file-input').addEventListener('change', (e) => loadFile(e.target.files[0]));
+document.getElementById('btn-locate').addEventListener('click', locateMe);
+document.getElementById('btn-search').addEventListener('click', runSearch);
+document.getElementById('sort-effective').addEventListener('click', () => setSortMode('effective'));
+document.getElementById('sort-pump').addEventListener('click', () => setSortMode('pump'));
+document.getElementById('sort-distance').addEventListener('click', () => setSortMode('distance'));
+
+const zone = document.getElementById('upload-zone');
+zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
+zone.addEventListener('drop', (e) => { e.preventDefault(); zone.classList.remove('drag'); loadFile(e.dataTransfer.files[0]); });
+
+['lat','lon','mpg','tank'].forEach(id => {
+  document.getElementById(id).addEventListener('keydown', (e) => { if (e.key === 'Enter' && priceData) runSearch(); });
+});
+
+document.getElementById('radius-slider').addEventListener('input', (e) => setRadius(e.target.value));
+document.getElementById('radius').addEventListener('input', (e) => setRadius(e.target.value));
+document.querySelectorAll('.preset-btn').forEach(b => {
+  b.addEventListener('click', () => setRadius(b.dataset.r));
+});
+
+document.getElementById('exclude-costco').addEventListener('change', () => { if (priceData) runSearch(); });
+document.getElementById('exclude-motorway').addEventListener('change', () => { if (priceData) runSearch(); });
+document.getElementById('unit-pence')?.addEventListener('click', () => setDisplayMode('pence'));
+document.getElementById('unit-tank')?.addEventListener('click', () => setDisplayMode('tank'));
+
+initMap();
+</script>
+</body>
+</html>

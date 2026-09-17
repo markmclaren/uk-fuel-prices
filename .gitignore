@@ -1,0 +1,8 @@
+.env
+token.json
+venv/
+__pycache__/
+*.pyc
+.storage/
+state.json
+state.lock

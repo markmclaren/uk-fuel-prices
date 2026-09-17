@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fuel Economy & Cost Calculator</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --result-bg: #f1f5f9;
+      --accent: #0f766e;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 1.5rem;
+    }
+
+    .calculator-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+      max-width: 440px;
+      width: 100%;
+      box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    }
+
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      margin-bottom: 0.35rem;
+    }
+
+    p.subtitle {
+      color: var(--muted);
+      font-size: 0.875rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .form-group {
+      margin-bottom: 1.25rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+    }
+
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    input {
+      width: 100%;
+      padding: 0.65rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    }
+
+    .unit-badge {
+      position: absolute;
+      right: 0.75rem;
+      color: var(--muted);
+      font-size: 0.875rem;
+      pointer-events: none;
+    }
+
+    .results {
+      margin-top: 1.75rem;
+      padding: 1.25rem;
+      background-color: var(--result-bg);
+      border-radius: 8px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    .stat {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .stat-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin-bottom: 0.25rem;
+    }
+
+    .stat-val {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .stat-val.highlight {
+      color: var(--accent);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="calculator-card">
+    <h1>Fuel & Economy Calculator</h1>
+    <p class="subtitle">Enter your refill details below to calculate consumption and cost.</p>
+
+    <div class="form-group">
+      <label for="miles">Distance Driven</label>
+      <div class="input-wrapper">
+        <input type="number" id="miles" placeholder="e.g. 350" step="any" min="0">
+        <span class="unit-badge">miles</span>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="litres">Fuel Refilled</label>
+      <div class="input-wrapper">
+        <input type="number" id="litres" placeholder="e.g. 42" step="any" min="0">
+        <span class="unit-badge">litres</span>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="price">Fuel Price (Optional)</label>
+      <div class="input-wrapper">
+        <input type="number" id="price" placeholder="e.g. 142.9" step="any" min="0">
+        <span class="unit-badge">p / litre</span>
+      </div>
+    </div>
+
+    <div class="results" id="results-box">
+      <div class="stat">
+        <span class="stat-label">UK MPG</span>
+        <span class="stat-val highlight" id="out-uk-mpg">—</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Litres / Mile</span>
+        <span class="stat-val" id="out-l-per-mi">—</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Cost / Mile</span>
+        <span class="stat-val" id="out-cost-per-mi">—</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Total Fill Cost</span>
+        <span class="stat-val" id="out-total-cost">—</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const IMPERIAL_GALLON = 4.54609;
+
+    const milesInput = document.getElementById('miles');
+    const litresInput = document.getElementById('litres');
+    const priceInput = document.getElementById('price');
+
+    const outUkMpg = document.getElementById('out-uk-mpg');
+    const outLPerMi = document.getElementById('out-l-per-mi');
+    const outCostPerMi = document.getElementById('out-cost-per-mi');
+    const outTotalCost = document.getElementById('out-total-cost');
+
+    function calculate() {
+      const miles = parseFloat(milesInput.value);
+      const litres = parseFloat(litresInput.value);
+      const pencePerLitre = parseFloat(priceInput.value);
+
+      if (miles > 0 && litres > 0) {
+        // Litres per mile
+        const lPerMi = litres / miles;
+        outLPerMi.textContent = lPerMi.toFixed(3) + ' L';
+
+        // UK MPG
+        const ukGallons = litres / IMPERIAL_GALLON;
+        const ukMpg = miles / ukGallons;
+        outUkMpg.textContent = ukMpg.toFixed(1);
+
+        // Pricing calculations (if provided)
+        if (pencePerLitre > 0) {
+          const totalCostPence = litres * pencePerLitre;
+          const totalCostPounds = totalCostPence / 100;
+          const costPerMilePence = totalCostPence / miles;
+
+          outTotalCost.textContent = '£' + totalCostPounds.toFixed(2);
+          outCostPerMi.textContent = costPerMilePence.toFixed(1) + 'p';
+        } else {
+          outTotalCost.textContent = '—';
+          outCostPerMi.textContent = '—';
+        }
+      } else {
+        outUkMpg.textContent = '—';
+        outLPerMi.textContent = '—';
+        outCostPerMi.textContent = '—';
+        outTotalCost.textContent = '—';
+      }
+    }
+
+    [milesInput, litresInput, priceInput].forEach(input => {
+      input.addEventListener('input', calculate);
+    });
+  </script>
+</body>
+</html>
