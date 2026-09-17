@@ -158,7 +158,10 @@ def request_with_retry(
     if params:
         url = f"{url}?{urllib.parse.urlencode(params)}"
 
-    req_headers = dict(headers)
+    req_headers = {
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 UKFuelFinder/1.0",
+        **headers,
+    }
     data_bytes: bytes | None = None
     if json_body is not None:
         data_bytes = json.dumps(json_body, ensure_ascii=False).encode("utf-8")
@@ -172,15 +175,17 @@ def request_with_retry(
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return HTTPResponse(resp.status, resp.read())
         except urllib.error.HTTPError as e:
-            resp_obj = HTTPResponse(e.code, e.read())
+            body = e.read()
+            body_text = body.decode("utf-8", errors="replace")
+            resp_obj = HTTPResponse(e.code, body)
             if e.code in (401, 403):
-                raise AuthError(f"Auth HTTP {e.code}", response=resp_obj)
+                raise AuthError(f"Auth HTTP {e.code}: {body_text}", response=resp_obj)
             if e.code == 404:
                 raise HTTPError("HTTP 404 Not Found", response=resp_obj)
             if e.code in RETRYABLE_STATUS:
-                last_exc = HTTPError(f"Retryable HTTP {e.code}", response=resp_obj)
+                last_exc = HTTPError(f"Retryable HTTP {e.code}: {body_text}", response=resp_obj)
             else:
-                raise HTTPError(f"HTTP {e.code}", response=resp_obj)
+                raise HTTPError(f"HTTP {e.code}: {body_text}", response=resp_obj)
         except Exception as e:
             last_exc = e
 
