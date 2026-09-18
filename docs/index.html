@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <link href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
   <script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
   <style>
     :root {
@@ -32,8 +33,8 @@
       --radius-sm:   8px;
     }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 15px; -webkit-font-smoothing: antialiased; }
-    #app { display: grid; grid-template-columns: 440px 1fr; grid-template-rows: 100vh; height: 100vh; overflow: hidden; }
+    html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 15px; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+    #app { display: grid; grid-template-columns: minmax(0, 440px) minmax(0, 1fr); grid-template-rows: 100vh; height: 100vh; width: 100%; overflow: hidden; }
     #sidebar { background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
     #sidebar-header { padding: 20px 20px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
     .logo-row { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
@@ -41,13 +42,19 @@
     h1 { font-size: 1.1rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--green)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
     .tagline { font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; }
     #controls { padding: 16px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; }
-    .control-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .control-row { display: flex; flex-wrap: wrap; gap: 10px; }
+    .control-row.row, .loc-row.row { margin-right: 0; margin-left: 0; }
+    .control-row.row > [class^="col"], .control-row.row > [class*=" col"], .loc-row.row > [class^="col"], .loc-row.row > [class*=" col"] {
+      padding-right: 0;
+      padding-left: 0;
+    }
     .field { display: flex; flex-direction: column; gap: 4px; }
-    .field.full { grid-column: 1 / -1; }
+    .field.full { width: 100%; }
     label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
     .input-wrap { position: relative; display: flex; align-items: center; }
-    input[type="number"], input[type="text"], select { width: 100%; background: var(--surface2); border: 1px solid var(--border-bright); border-radius: var(--radius-sm); color: var(--text); font-family: inherit; font-size: 0.875rem; padding: 7px 10px; outline: none; transition: border-color 0.15s, box-shadow 0.15s; -moz-appearance: textfield; }
+    input[type="number"], input[type="text"], select { width: 100%; min-height: 42px; background: var(--surface2); border: 1px solid var(--border-bright); border-radius: var(--radius-sm); color: var(--text); font-family: inherit; font-size: 0.875rem; padding: 9px 10px; outline: none; transition: border-color 0.15s, box-shadow 0.15s; -moz-appearance: textfield; }
     input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; }
+    input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
     input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
     select { cursor: pointer; }
     .unit { position: absolute; right: 10px; font-size: 0.72rem; color: var(--text-muted); pointer-events: none; }
@@ -61,21 +68,21 @@
     .file-loaded .upload-zone-text strong { color: var(--green); }
     .loc-row { display: flex; gap: 8px; align-items: flex-end; }
     .loc-row .field { flex: 1; }
-    #btn-locate { flex-shrink: 0; height: 34px; padding: 0 12px; background: var(--surface2); border: 1px solid var(--border-bright); border-radius: var(--radius-sm); color: var(--text); font-family: inherit; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: border-color 0.15s, background 0.15s; white-space: nowrap; }
+    #btn-locate { flex-shrink: 0; min-height: 42px; padding: 0 12px; background: var(--surface2); border: 1px solid var(--border-bright); border-radius: var(--radius-sm); color: var(--text); font-family: inherit; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: border-color 0.15s, background 0.15s; white-space: nowrap; }
     #btn-locate:hover { border-color: var(--accent); background: var(--accent-glow); }
-    #btn-search { width: 100%; padding: 10px; background: linear-gradient(135deg, #1f6feb, #238636); border: none; border-radius: var(--radius-sm); color: #fff; font-family: inherit; font-size: 0.9rem; font-weight: 600; cursor: pointer; letter-spacing: 0.02em; transition: opacity 0.15s, transform 0.1s; }
+    #btn-search { width: 100%; min-height: 44px; padding: 10px; background: linear-gradient(135deg, #1f6feb, #238636); border: none; border-radius: var(--radius-sm); color: #fff; font-family: inherit; font-size: 0.9rem; font-weight: 600; cursor: pointer; letter-spacing: 0.02em; transition: opacity 0.15s, transform 0.1s; }
     #btn-search:hover { opacity: 0.9; }
     #btn-search:active { transform: scale(0.98); }
     #btn-search:disabled { opacity: 0.4; cursor: not-allowed; }
-    .sort-bar { display: flex; gap: 6px; padding: 10px 20px; flex-shrink: 0; border-bottom: 1px solid var(--border); }
-    .sort-btn { flex: 1; padding: 6px 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); font-family: inherit; font-size: 0.75rem; font-weight: 500; cursor: pointer; text-align: center; transition: all 0.15s; }
+    .sort-bar { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 20px; flex-shrink: 0; border-bottom: 1px solid var(--border); }
+    .sort-btn { flex: 1 1 100px; min-height: 40px; padding: 6px 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); font-family: inherit; font-size: 0.75rem; font-weight: 500; cursor: pointer; text-align: center; transition: all 0.15s; }
     .sort-btn.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
     #results-header { padding: 12px 20px 8px; flex-shrink: 0; }
     #result-count { font-size: 0.78rem; color: var(--text-muted); }
-    .unit-btn { padding: 3px 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); font-family: inherit; font-size: 0.72rem; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+    .unit-btn { min-height: 34px; padding: 3px 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); font-family: inherit; font-size: 0.72rem; font-weight: 500; cursor: pointer; transition: all 0.15s; }
     .unit-btn.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
 
-    .preset-btn { padding: 2px 7px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); font-family: inherit; font-size: 0.68rem; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+    .preset-btn { min-height: 32px; padding: 2px 7px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); font-family: inherit; font-size: 0.68rem; font-weight: 600; cursor: pointer; transition: all 0.15s; }
     .preset-btn:hover { border-color: var(--accent); color: var(--text); }
     .preset-btn.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
     input[type="range"] { accent-color: var(--accent); height: 5px; border-radius: 3px; background: var(--surface2); outline: none; }
@@ -86,8 +93,8 @@
     #results::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
 
     /* Table layout styling */
-    .table-wrap { width: 100%; overflow-x: auto; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface2); }
-    .data-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; text-align: left; }
+    .table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface2); }
+    .data-table { width: 100%; min-width: 540px; border-collapse: collapse; font-size: 0.82rem; text-align: left; }
     .data-table th { background: var(--surface3); color: var(--text-muted); padding: 9px 10px; font-weight: 600; text-align: left; cursor: pointer; border-bottom: 1px solid var(--border-bright); user-select: none; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; transition: color 0.15s, background 0.15s; }
     .data-table th:hover { color: var(--text); background: var(--surface2); }
     .data-table th.active-th { color: var(--accent); background: rgba(88,166,255,0.08); }
@@ -120,14 +127,25 @@
     .popup-price { display: flex; flex-direction: column; gap: 1px; }
     .popup-price-label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
     .popup-price-val { font-size: 1rem; font-weight: 700; }
-    @media (max-width: 720px) {
-      #app { grid-template-columns: 1fr; grid-template-rows: auto 45vh; }
-      #sidebar { max-height: 55vh; }
+    @media (max-width: 991.98px) {
+      #app { grid-template-columns: 1fr; grid-template-rows: auto minmax(280px, 45vh); height: auto; min-height: 100vh; overflow: visible; }
+      #sidebar { border-right: 0; border-bottom: 1px solid var(--border); overflow: visible; }
+      #map { min-height: 280px; height: 45vh; }
+      .loc-row { flex-wrap: wrap; }
+      .loc-row .field { width: 100%; }
+      #btn-locate { width: 100%; justify-content: center; }
+      #results { max-height: 45vh; }
+    }
+    @media (max-width: 575.98px) {
+      #sidebar-header, #controls, .sort-bar, #results-header { padding-left: 12px; padding-right: 12px; }
+      #controls { gap: 10px; }
+      .radius-presets { display: flex; flex-wrap: wrap; }
+      #results { padding: 0 6px 12px; }
     }
   </style>
 </head>
 <body>
-<div id="app">
+<div id="app" class="container-fluid p-0">
   <div id="sidebar">
     <div id="sidebar-header">
       <div class="logo-row">
@@ -135,7 +153,7 @@
         <h1>True Cost Fuel Finder</h1>
       </div>
       <p class="tagline">Finds the cheapest station accounting for fuel burned driving there &amp; back.</p>
-      <div style="margin-top: 6px; font-size: 0.72rem; color: #e3b341; background: rgba(227, 179, 65, 0.12); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(227, 179, 65, 0.25); display: inline-flex; align-items: center; gap: 5px;">
+      <div class="d-inline-flex flex-wrap align-items-center gap-1" style="margin-top: 6px; font-size: 0.72rem; color: #e3b341; background: rgba(227, 179, 65, 0.12); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(227, 179, 65, 0.25);">
         <span>🧪 Test Demo</span> &bull; <span>Prices updated once daily (06:00 UTC)</span>
       </div>
     </div>
@@ -152,22 +170,24 @@
       </div>
       <div class="field full">
         <label>Your Location (or click on map)</label>
-        <div class="loc-row">
-          <div class="field">
+        <div class="loc-row row g-2">
+          <div class="field col-12 col-sm">
             <div class="input-wrap">
               <input type="number" id="lat" placeholder="Latitude" step="any" aria-label="Latitude">
             </div>
           </div>
-          <div class="field">
+          <div class="field col-12 col-sm">
             <div class="input-wrap">
               <input type="number" id="lon" placeholder="Longitude" step="any" aria-label="Longitude">
             </div>
           </div>
-          <button id="btn-locate" title="Use my current location" aria-label="Detect my location">📍 Locate me</button>
+          <div class="col-12 col-sm-auto d-flex">
+            <button id="btn-locate" class="w-100" title="Use my current location" aria-label="Detect my location">📍 Locate me</button>
+          </div>
         </div>
       </div>
-      <div class="control-row">
-        <div class="field">
+      <div class="control-row row g-2">
+        <div class="field col-12 col-sm-6">
           <label>Fuel Type</label>
           <select id="fuel-type" aria-label="Fuel type">
             <option value="E10">E10 (Petrol)</option>
@@ -177,7 +197,7 @@
             <option value="HVO">HVO</option>
           </select>
         </div>
-        <div class="field">
+        <div class="field col-12 col-sm-6">
           <div style="display:flex;justify-content:space-between;align-items:center;">
             <label>Search Radius</label>
             <span id="radius-val" style="color:var(--accent);font-weight:700;font-size:0.75rem;">15 km</span>
@@ -189,9 +209,9 @@
         </div>
       </div>
       <div class="field full" style="margin-top:-4px;">
-        <div style="display:flex;align-items:center;gap:8px;">
+        <div class="d-flex flex-column flex-sm-row align-items-stretch align-items-sm-center gap-2">
           <input type="range" id="radius-slider" value="15" min="1" max="100" step="1" aria-label="Radius slider" style="flex:1;cursor:pointer;">
-          <div class="radius-presets" style="display:flex;gap:3px;">
+          <div class="radius-presets d-flex flex-wrap gap-1">
             <button class="preset-btn" data-r="5">5k</button>
             <button class="preset-btn" data-r="10">10k</button>
             <button class="preset-btn active" data-r="15">15k</button>
@@ -200,15 +220,15 @@
           </div>
         </div>
       </div>
-      <div class="control-row">
-        <div class="field">
+      <div class="control-row row g-2">
+        <div class="field col-12 col-sm-6">
           <label>Your MPG</label>
           <div class="input-wrap">
             <input type="number" id="mpg" value="40" min="1" max="200" step="0.5" class="has-unit" aria-label="Vehicle fuel economy in MPG">
             <span class="unit">mpg</span>
           </div>
         </div>
-        <div class="field">
+        <div class="field col-12 col-sm-6">
           <label>Tank Fill</label>
           <div class="input-wrap">
             <input type="number" id="tank" value="40" min="1" max="200" step="1" class="has-unit" aria-label="Litres to fill">
@@ -218,11 +238,11 @@
       </div>
       <div class="field full" style="margin-top:2px;display:flex;flex-direction:column;gap:6px;">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;font-size:0.8rem;color:var(--text);font-weight:500;">
-          <input type="checkbox" id="exclude-costco" checked style="width:auto;cursor:pointer;">
+          <input type="checkbox" id="exclude-costco" checked style="cursor:pointer;">
           Exclude Costco (membership required)
         </label>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;font-size:0.8rem;color:var(--text);font-weight:500;">
-          <input type="checkbox" id="exclude-motorway" checked style="width:auto;cursor:pointer;">
+          <input type="checkbox" id="exclude-motorway" checked style="cursor:pointer;">
           Exclude Motorway Services 🛣️
         </label>
       </div>
@@ -234,9 +254,9 @@
       <button class="sort-btn" id="sort-distance" aria-pressed="false">&#8597; Distance</button>
     </div>
     <div id="results-header" style="display:none;">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
         <div id="result-count"></div>
-        <div style="display:flex; gap:4px;">
+        <div class="d-flex flex-wrap gap-1">
           <button class="unit-btn active" id="unit-tank" title="Show total price for a full tank in pounds">Full Tank (£)</button>
           <button class="unit-btn" id="unit-pence" title="Show price in pence per litre">p/L</button>
         </div>

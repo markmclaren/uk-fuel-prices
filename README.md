@@ -199,7 +199,7 @@ docker compose up --build
 
 ## 🛠️ Tech Stack
 
-- **Frontend**: HTML5, Vanilla JavaScript, CSS Grid & Flexbox (Located in `/docs`).
+- **Frontend**: HTML5, Vanilla JavaScript, custom CSS, and Bootstrap 5 responsive utilities (Located in `/docs`).
 - **Mapping**: [MapLibre GL JS](https://maplibre.org/) with [OpenFreeMap](https://openfreemap.org/) dark tiles.
 - **Data Scraping & Extraction**: Python 3 (`uff.py`, standard library only).
 - **Automation**: GitHub Actions (`.github/workflows/fuel_finder.yml`).
