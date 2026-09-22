@@ -86,8 +86,8 @@
     #data-status input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
     #data-status.loaded { color: var(--green); border-color: rgba(63,185,80,0.35); background: rgba(63,185,80,0.06); }
     #data-status-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
-    #controls { padding: 10px 20px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; }
-    .control-row { display: flex; flex-wrap: wrap; gap: 10px; }
+    #controls { padding: 10px 16px 10px; border-bottom: 1px solid var(--border); flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; max-height: 48vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .control-row { display: flex; flex-wrap: wrap; gap: 8px; }
     .control-row.row, .loc-row.row { margin-right: 0; margin-left: 0; }
     .control-row.row > [class^="col"], .control-row.row > [class*=" col"], .loc-row.row > [class^="col"], .loc-row.row > [class*=" col"] {
       padding-right: 0;
@@ -97,49 +97,190 @@
     .field.full { width: 100%; }
     label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
     .input-wrap { position: relative; display: flex; align-items: center; }
-    input[type="number"], input[type="text"], select { width: 100%; min-height: 44px; background: var(--surface2); border: 1px solid var(--border-bright); border-radius: var(--radius-sm); color: var(--text); font-family: inherit; font-size: 0.875rem; padding: 9px 10px; outline: none; transition: border-color 0.15s, box-shadow 0.15s; -moz-appearance: textfield; }
+    input[type="number"], input[type="text"], select { width: 100%; min-height: 40px; background: var(--surface2); border: 1px solid var(--border-bright); border-radius: var(--radius-sm); color: var(--text); font-family: inherit; font-size: 0.85rem; padding: 8px 10px; outline: none; transition: border-color 0.15s, box-shadow 0.15s; -moz-appearance: textfield; }
     input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; }
-    input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
+    input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--accent); }
     input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
     select { cursor: pointer; }
     .unit { position: absolute; right: 10px; font-size: 0.72rem; color: var(--text-muted); pointer-events: none; }
     input.has-unit { padding-right: 44px; }
-    /* upload-zone kept for drag-and-drop on desktop but hidden by default */
     .upload-zone { display: none; }
-    .loc-row { display: flex; gap: 8px; align-items: flex-end; }
-    .loc-row .field { flex: 1; }
-    #btn-locate { flex-shrink: 0; min-height: 42px; padding: 0 12px; background: var(--surface2); border: 1px solid var(--border-bright); border-radius: var(--radius-sm); color: var(--text); font-family: inherit; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: border-color 0.15s, background 0.15s; white-space: nowrap; }
+
+    #btn-locate {
+      flex-shrink: 0;
+      min-height: 28px;
+      padding: 2px 10px;
+      background: var(--surface2);
+      border: 1px solid var(--border-bright);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.74rem;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: border-color 0.15s, background 0.15s;
+      white-space: nowrap;
+    }
     #btn-locate:hover { border-color: var(--accent); background: var(--accent-glow); }
-    #btn-search { width: 100%; min-height: 44px; padding: 10px; background: linear-gradient(135deg, #1f6feb, #238636); border: none; border-radius: var(--radius-sm); color: #fff; font-family: inherit; font-size: 0.9rem; font-weight: 600; cursor: pointer; letter-spacing: 0.02em; transition: opacity 0.15s, transform 0.1s; }
+
+    #btn-search {
+      width: 100%;
+      min-height: 40px;
+      padding: 8px 12px;
+      background: linear-gradient(135deg, #1f6feb, #238636);
+      border: none;
+      border-radius: var(--radius-sm);
+      color: #fff;
+      font-family: inherit;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: 0.02em;
+      transition: opacity 0.15s, transform 0.1s;
+    }
     #btn-search:hover { opacity: 0.9; }
     #btn-search:active { transform: scale(0.98); }
     #btn-search:disabled { opacity: 0.4; cursor: not-allowed; }
-    .sort-bar { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 20px; flex-shrink: 0; border-bottom: 1px solid var(--border); }
-    .sort-btn { flex: 1 1 100px; min-height: 40px; padding: 6px 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); font-family: inherit; font-size: 0.75rem; font-weight: 500; cursor: pointer; text-align: center; transition: all 0.15s; }
+
+    /* ── Options Drawer (Radius, MPG, Tank, Filters) ── */
+    .options-drawer {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      transition: border-color 0.15s, background 0.15s;
+      margin-top: 2px;
+    }
+    .options-drawer[open] {
+      border-color: var(--border-bright);
+      background: rgba(28, 35, 49, 0.7);
+    }
+    .options-summary {
+      list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 10px;
+      cursor: pointer;
+      user-select: none;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      transition: color 0.15s, background 0.15s;
+    }
+    .options-summary::-webkit-details-marker { display: none; }
+    .options-summary:hover { color: var(--text); }
+    .summary-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+    }
+    .summary-badge {
+      font-size: 0.68rem;
+      background: var(--surface3);
+      padding: 2px 7px;
+      border-radius: 999px;
+      color: var(--accent);
+      border: 1px solid rgba(88, 166, 255, 0.2);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 175px;
+    }
+    .summary-chevron {
+      font-size: 0.75rem;
+      transition: transform 0.2s ease;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+    .options-drawer[open] .summary-chevron { transform: rotate(180deg); }
+    .drawer-body {
+      padding: 10px 10px 12px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .filter-check-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      text-transform: none;
+      font-size: 0.8rem;
+      color: var(--text);
+      font-weight: 500;
+    }
+    .field-val-highlight { color: var(--accent); font-weight: 700; font-size: 0.75rem; }
+
+    .sort-bar { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 16px; flex-shrink: 0; border-bottom: 1px solid var(--border); }
+    .sort-btn { flex: 1 1 80px; min-height: 32px; padding: 4px 6px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); font-family: inherit; font-size: 0.72rem; font-weight: 500; cursor: pointer; text-align: center; transition: all 0.15s; }
     .sort-btn.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
-    #results-header { padding: 12px 20px 8px; flex-shrink: 0; }
+    #results-header { padding: 10px 16px 8px; flex-shrink: 0; }
     #result-count { font-size: 0.78rem; color: var(--text-muted); }
-    .unit-btn { min-height: 34px; padding: 3px 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); font-family: inherit; font-size: 0.72rem; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+    .unit-btn { min-height: 30px; padding: 2px 7px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); font-family: inherit; font-size: 0.72rem; font-weight: 500; cursor: pointer; transition: all 0.15s; }
     .unit-btn.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
 
-    .preset-btn { min-height: 32px; padding: 2px 7px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); font-family: inherit; font-size: 0.68rem; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+    .preset-btn { min-height: 30px; padding: 2px 7px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); font-family: inherit; font-size: 0.68rem; font-weight: 600; cursor: pointer; transition: all 0.15s; }
     .preset-btn:hover { border-color: var(--accent); color: var(--text); }
     .preset-btn.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
     input[type="range"] { accent-color: var(--accent); height: 5px; border-radius: 3px; background: var(--surface2); outline: none; }
 
-    #results { flex: 1; overflow-y: auto; padding: 0 12px 16px; }
-    #results::-webkit-scrollbar { width: 4px; }
+    #results {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      padding: 0 12px 16px;
+    }
+    #results::-webkit-scrollbar { width: 5px; }
     #results::-webkit-scrollbar-track { background: transparent; }
-    #results::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
+    #results::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
 
     /* ── Table layout ── */
-    .table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface2); }
-    .data-table { width: 100%; min-width: 540px; border-collapse: collapse; font-size: 0.82rem; text-align: left; }
-    .data-table th { background: var(--surface3); color: var(--text-muted); padding: 9px 10px; font-weight: 600; text-align: left; cursor: pointer; border-bottom: 1px solid var(--border-bright); user-select: none; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; transition: color 0.15s, background 0.15s; }
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--surface2);
+    }
+    .data-table {
+      width: 100%;
+      min-width: 320px;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+      text-align: left;
+    }
+    .data-table th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: var(--surface3);
+      color: var(--text-muted);
+      padding: 8px 10px;
+      font-weight: 600;
+      text-align: left;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border-bright);
+      user-select: none;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      transition: color 0.15s, background 0.15s;
+      white-space: nowrap;
+    }
     .data-table th:hover { color: var(--text); background: var(--surface2); }
     .data-table th.active-th { color: var(--accent); background: rgba(88,166,255,0.08); }
-    .data-table th.num-col, .data-table td.num-col { text-align: right; }
-    .data-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .data-table th.num-col, .data-table td.num-col { text-align: right; white-space: nowrap; }
+    .data-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
     .data-table tr { cursor: pointer; transition: background 0.15s; }
     .data-table tr:hover { background: var(--surface3); }
     .data-table tr.selected { background: var(--surface3); outline: 1px solid var(--accent); }
@@ -154,8 +295,14 @@
     .data-table tr.status-not-worth { background: rgba(248, 81, 73, 0.04); }
     .data-table tr.status-nearest { background: rgba(88, 166, 255, 0.04); }
 
-    /* ── Mobile result cards (replace table on small screens) ── */
-    .card-list { display: flex; flex-direction: column; gap: 8px; }
+    /* View modes: Table is default; user can toggle to Cards */
+    .view-table-active .table-wrap { display: block !important; }
+    .view-table-active .card-list { display: none !important; }
+    .view-cards-active .table-wrap { display: none !important; }
+    .view-cards-active .card-list { display: flex !important; }
+
+    /* ── Mobile result cards ── */
+    .card-list { display: none; flex-direction: column; gap: 8px; }
     .station-card {
       background: var(--surface2);
       border: 1px solid var(--border);
@@ -210,43 +357,43 @@
     @media (max-width: 991.98px) {
       #app {
         grid-template-columns: 1fr;
-        /* Map sits above, panel below — map gets priority height */
-        grid-template-rows: minmax(40vh, 1fr) auto;
+        grid-template-rows: minmax(30vh, 1fr) auto;
         height: 100dvh;
         overflow: hidden;
       }
-      /* Map always visible at top */
-      #map { min-height: 35vh; height: 100%; order: -1; }
-      #sidebar { border-right: 0; border-top: 1px solid var(--border); overflow-y: auto; max-height: 62vh; -webkit-overflow-scrolling: touch; }
+      #map { min-height: 30vh; height: 100%; order: -1; }
+      #sidebar {
+        border-right: 0;
+        border-top: 1px solid var(--border);
+        height: 65vh;
+        max-height: 68vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
       /* Sidebar hidden = full-screen map */
       #app.sidebar-hidden { grid-template-rows: 1fr 0; }
-      #app.sidebar-hidden #sidebar { max-height: 0; overflow: hidden; border-top: 0; }
-      .loc-row { flex-wrap: wrap; }
-      .loc-row .field { width: 100%; }
-      #btn-locate { width: 100%; justify-content: center; }
-      #results { max-height: none; }
+      #app.sidebar-hidden #sidebar { height: 0; max-height: 0; overflow: hidden; border-top: 0; }
       .sidebar-drag-handle { display: block; }
-      /* Hide table, show cards on mobile */
-      .table-wrap { display: none; }
-      .card-list { display: flex; }
+      #controls { max-height: 46vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+      #results { flex: 1; min-height: 0; overflow-y: auto; }
     }
-    /* Desktop: hide toggle & cards */
+    /* Desktop: hide toggle */
     @media (min-width: 992px) {
       .mobile-sidebar-toggle { display: none; }
       .sidebar-drag-handle { display: none; }
-      .card-list { display: none !important; }
-      .table-wrap { display: block; }
     }
     /* ── Phone (< 576px) ── */
     @media (max-width: 575.98px) {
-      #sidebar-header, #controls, .sort-bar, #results-header { padding-left: 12px; padding-right: 12px; }
-      #controls { gap: 10px; }
-      .radius-presets { display: flex; flex-wrap: wrap; }
-      #results { padding: 0 6px 80px; } /* bottom pad for toggle button */
+      #sidebar-header, #controls, .sort-bar, #results-header { padding-left: 10px; padding-right: 10px; }
+      #controls { gap: 8px; }
+      #results { padding: 0 8px 80px; } /* bottom pad for toggle button */
+      .data-table th, .data-table td { padding: 7px 6px; }
+      .data-table { min-width: 310px; font-size: 0.76rem; }
       /* Prevent iOS auto-zoom on focus */
       input[type="number"], input[type="text"], select { font-size: 16px; }
-      #btn-search { min-height: 50px; font-size: 1rem; }
-      #btn-locate { min-height: 48px; }
+      #btn-search { min-height: 40px; font-size: 0.88rem; }
+      #btn-locate { min-height: 28px; font-size: 0.74rem; }
     }
   </style>
 </head>
@@ -274,27 +421,31 @@
         <input type="file" id="file-input" accept=".json" aria-label="Load prices JSON file">
         <span id="data-status-text">⏳ Loading price data…</span>
       </div>
+
+      <!-- Location row: Lat / Lon side by side with compact Locate Me button -->
       <div class="field full">
-        <label>Your Location (or click on map)</label>
-        <div class="loc-row row g-2">
-          <div class="field col-12 col-sm">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <label for="lat">Location <span class="d-none d-sm-inline" style="text-transform:none;font-weight:400;color:var(--text-muted);">(or tap map)</span></label>
+          <button id="btn-locate" type="button" title="Use current GPS location" aria-label="Detect my location">📍 Locate me</button>
+        </div>
+        <div class="row g-2">
+          <div class="field col-6">
             <div class="input-wrap">
               <input type="number" id="lat" placeholder="Latitude" step="any" aria-label="Latitude">
             </div>
           </div>
-          <div class="field col-12 col-sm">
+          <div class="field col-6">
             <div class="input-wrap">
               <input type="number" id="lon" placeholder="Longitude" step="any" aria-label="Longitude">
             </div>
           </div>
-          <div class="col-12 col-sm-auto d-flex">
-            <button id="btn-locate" class="w-100" title="Use my current location" aria-label="Detect my location">📍 Locate me</button>
-          </div>
         </div>
       </div>
-      <div class="control-row row g-2">
-        <div class="field col-12 col-sm-6">
-          <label>Fuel Type</label>
+
+      <!-- Fuel Type + Search Button side-by-side -->
+      <div class="row g-2 align-items-end">
+        <div class="field col-7 col-sm-8">
+          <label for="fuel-type">Fuel Type</label>
           <select id="fuel-type" aria-label="Fuel type">
             <option value="E10">E10 (Petrol)</option>
             <option value="E5">E5 (Premium Petrol)</option>
@@ -303,56 +454,75 @@
             <option value="HVO">HVO</option>
           </select>
         </div>
-        <div class="field col-12 col-sm-6">
-          <div style="display:flex;justify-content:space-between;align-items:center;">
-            <label>Search Radius</label>
-            <span id="radius-val" style="color:var(--accent);font-weight:700;font-size:0.75rem;">15 km</span>
-          </div>
-          <div class="input-wrap">
-            <input type="number" id="radius" value="15" min="1" max="100" class="has-unit" aria-label="Search radius in km">
-            <span class="unit">km</span>
-          </div>
+        <div class="field col-5 col-sm-4">
+          <button id="btn-search" class="w-100" disabled>Find Fuel</button>
         </div>
       </div>
-      <div class="field full" style="margin-top:-4px;">
-        <div class="d-flex flex-column flex-sm-row align-items-stretch align-items-sm-center gap-2">
-          <input type="range" id="radius-slider" value="15" min="1" max="100" step="1" aria-label="Radius slider" style="flex:1;cursor:pointer;">
-          <div class="radius-presets d-flex flex-wrap gap-1">
-            <button class="preset-btn" data-r="5">5k</button>
-            <button class="preset-btn" data-r="10">10k</button>
-            <button class="preset-btn active" data-r="15">15k</button>
-            <button class="preset-btn" data-r="25">25k</button>
-            <button class="preset-btn" data-r="50">50k</button>
+
+      <!-- Hidden drawer by default for radius, MPG, tank size, and filters -->
+      <details class="options-drawer" id="options-drawer">
+        <summary class="options-summary">
+          <span class="summary-label">
+            <span class="summary-icon">⚙️</span>
+            <span>Options</span>
+          </span>
+          <span class="summary-badge" id="options-summary-badge">15 km · 40 mpg · 40 L</span>
+          <span class="summary-chevron" aria-hidden="true">▾</span>
+        </summary>
+        <div class="drawer-body">
+          <!-- Search Radius -->
+          <div class="field">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <label for="radius">Search Radius</label>
+              <span id="radius-val" class="field-val-highlight">15 km</span>
+            </div>
+            <div class="input-wrap mb-2">
+              <input type="number" id="radius" value="15" min="1" max="100" class="has-unit" aria-label="Search radius in km">
+              <span class="unit">km</span>
+            </div>
+            <div class="d-flex flex-column flex-sm-row align-items-stretch align-items-sm-center gap-2">
+              <input type="range" id="radius-slider" value="15" min="1" max="100" step="1" aria-label="Radius slider" style="flex:1;cursor:pointer;">
+              <div class="radius-presets d-flex flex-wrap gap-1">
+                <button type="button" class="preset-btn" data-r="5">5k</button>
+                <button type="button" class="preset-btn" data-r="10">10k</button>
+                <button type="button" class="preset-btn active" data-r="15">15k</button>
+                <button type="button" class="preset-btn" data-r="25">25k</button>
+                <button type="button" class="preset-btn" data-r="50">50k</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Vehicle Economics: MPG & Tank -->
+          <div class="row g-2">
+            <div class="field col-6">
+              <label for="mpg">Your MPG</label>
+              <div class="input-wrap">
+                <input type="number" id="mpg" value="40" min="1" max="200" step="0.5" class="has-unit" aria-label="Vehicle fuel economy in MPG">
+                <span class="unit">mpg</span>
+              </div>
+            </div>
+            <div class="field col-6">
+              <label for="tank">Tank Fill</label>
+              <div class="input-wrap">
+                <input type="number" id="tank" value="40" min="1" max="200" step="1" class="has-unit" aria-label="Litres to fill">
+                <span class="unit">L</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Filters: Costco & Motorway -->
+          <div class="field d-flex flex-column gap-2 pt-1">
+            <label class="filter-check-label">
+              <input type="checkbox" id="exclude-costco" checked>
+              <span>Exclude Costco <span style="font-size:0.75rem;color:var(--text-muted);">(membership)</span></span>
+            </label>
+            <label class="filter-check-label">
+              <input type="checkbox" id="exclude-motorway" checked>
+              <span>Exclude Motorway Services 🛣️</span>
+            </label>
           </div>
         </div>
-      </div>
-      <div class="control-row row g-2">
-        <div class="field col-12 col-sm-6">
-          <label>Your MPG</label>
-          <div class="input-wrap">
-            <input type="number" id="mpg" value="40" min="1" max="200" step="0.5" class="has-unit" aria-label="Vehicle fuel economy in MPG">
-            <span class="unit">mpg</span>
-          </div>
-        </div>
-        <div class="field col-12 col-sm-6">
-          <label>Tank Fill</label>
-          <div class="input-wrap">
-            <input type="number" id="tank" value="40" min="1" max="200" step="1" class="has-unit" aria-label="Litres to fill">
-            <span class="unit">L</span>
-          </div>
-        </div>
-      </div>
-      <div class="field full" style="margin-top:2px;display:flex;flex-direction:column;gap:6px;">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;font-size:0.8rem;color:var(--text);font-weight:500;">
-          <input type="checkbox" id="exclude-costco" checked style="cursor:pointer;">
-          Exclude Costco (membership required)
-        </label>
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;font-size:0.8rem;color:var(--text);font-weight:500;">
-          <input type="checkbox" id="exclude-motorway" checked style="cursor:pointer;">
-          Exclude Motorway Services 🛣️
-        </label>
-      </div>
-      <button id="btn-search" disabled>Find Cheapest Stations</button>
+      </details>
     </div>
     <div class="sort-bar" id="sort-bar" style="display:none;">
       <button class="sort-btn active" id="sort-effective" aria-pressed="true">&#8597; True Cost</button>
@@ -362,9 +532,16 @@
     <div id="results-header" style="display:none;">
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
         <div id="result-count"></div>
-        <div class="d-flex flex-wrap gap-1">
-          <button class="unit-btn active" id="unit-tank" title="Show total price for a full tank in pounds">Full Tank (£)</button>
-          <button class="unit-btn" id="unit-pence" title="Show price in pence per litre">p/L</button>
+        <div class="d-flex flex-wrap gap-1 align-items-center">
+          <div class="btn-group-toggle d-flex gap-1" role="group" aria-label="View format">
+            <button class="unit-btn active" id="view-mode-table" title="Sortable table view">▤ Table</button>
+            <button class="unit-btn" id="view-mode-cards" title="Cards view">🗂 Cards</button>
+          </div>
+          <span style="color:var(--border-bright);margin:0 2px;">|</span>
+          <div class="btn-group-toggle d-flex gap-1" role="group" aria-label="Price format">
+            <button class="unit-btn active" id="unit-tank" title="Show total price for a full tank in pounds">Full Tank (£)</button>
+            <button class="unit-btn" id="unit-pence" title="Show price in pence per litre">p/L</button>
+          </div>
         </div>
       </div>
     </div>
@@ -389,11 +566,36 @@ let currentAugmented = [];
 let sortMode = 'effective';
 let sortOrder = 'asc';
 let displayMode = 'tank'; // 'tank' or 'pence'
+let currentView = 'table'; // 'table' or 'cards'
 let selectedId = null;
 let map = null;
 let popup = null;
 let isSidebarHiddenOnMobile = true; // map-first on mobile by default
 const mobileSidebarQuery = window.matchMedia('(max-width: 991.98px)');
+
+function setViewMode(view) {
+  currentView = view;
+  const container = document.getElementById('results');
+  if (container) {
+    container.classList.toggle('view-table-active', view === 'table');
+    container.classList.toggle('view-cards-active', view === 'cards');
+  }
+  document.getElementById('view-mode-table')?.classList.toggle('active', view === 'table');
+  document.getElementById('view-mode-cards')?.classList.toggle('active', view === 'cards');
+}
+
+function updateDrawerSummary() {
+  const r = document.getElementById('radius')?.value || 15;
+  const mpg = document.getElementById('mpg')?.value || 40;
+  const tank = document.getElementById('tank')?.value || 40;
+  const costco = document.getElementById('exclude-costco')?.checked ?? true;
+  const motorway = document.getElementById('exclude-motorway')?.checked ?? true;
+  const parts = [r + ' km', mpg + ' mpg', tank + ' L'];
+  if (!costco) parts.push('+Costco');
+  if (!motorway) parts.push('+Motorway');
+  const badge = document.getElementById('options-summary-badge');
+  if (badge) badge.textContent = parts.join(' · ');
+}
 
 function syncMobileSidebarState() {
   const app = document.getElementById('app');
@@ -603,6 +805,9 @@ function renderResults() {
     '<th onclick="setSortMode(\'distance\')" class="num-col ' + (sortMode === 'distance' ? 'active-th' : '') + '">Distance' + getThArrow('distance') + '</th>' +
     '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
     '<div class="card-list">' + cardsHtml + '</div>';
+
+  container.classList.toggle('view-table-active', currentView === 'table');
+  container.classList.toggle('view-cards-active', currentView === 'cards');
 
   document.querySelectorAll('.data-table tbody tr').forEach(r => {
     r.addEventListener('click', () => {
@@ -879,7 +1084,8 @@ function setRadius(val) {
   document.querySelectorAll('.preset-btn').forEach(b => {
     b.classList.toggle('active', parseFloat(b.dataset.r) === val);
   });
-  if (priceData) runSearch();
+  updateDrawerSummary();
+  if (priceData && myLat && myLon) runSearch();
 }
 
 function updateSortButtons() {
@@ -912,14 +1118,36 @@ dataStatus.addEventListener('drop', (e) => { e.preventDefault(); dataStatus.styl
   document.getElementById(id).addEventListener('keydown', (e) => { if (e.key === 'Enter' && priceData) runSearch(); });
 });
 
+['mpg', 'tank'].forEach(id => {
+  const el = document.getElementById(id);
+  el?.addEventListener('input', updateDrawerSummary);
+  el?.addEventListener('change', () => {
+    updateDrawerSummary();
+    if (priceData && myLat && myLon) runSearch();
+  });
+});
+
+document.getElementById('fuel-type')?.addEventListener('change', () => {
+  if (priceData && myLat && myLon) runSearch();
+});
+
 document.getElementById('radius-slider').addEventListener('input', (e) => setRadius(e.target.value));
 document.getElementById('radius').addEventListener('input', (e) => setRadius(e.target.value));
 document.querySelectorAll('.preset-btn').forEach(b => {
   b.addEventListener('click', () => setRadius(b.dataset.r));
 });
 
-document.getElementById('exclude-costco').addEventListener('change', () => { if (priceData) runSearch(); });
-document.getElementById('exclude-motorway').addEventListener('change', () => { if (priceData) runSearch(); });
+document.getElementById('exclude-costco').addEventListener('change', () => {
+  updateDrawerSummary();
+  if (priceData && myLat && myLon) runSearch();
+});
+document.getElementById('exclude-motorway').addEventListener('change', () => {
+  updateDrawerSummary();
+  if (priceData && myLat && myLon) runSearch();
+});
+
+document.getElementById('view-mode-table')?.addEventListener('click', () => setViewMode('table'));
+document.getElementById('view-mode-cards')?.addEventListener('click', () => setViewMode('cards'));
 document.getElementById('unit-pence')?.addEventListener('click', () => setDisplayMode('pence'));
 document.getElementById('unit-tank')?.addEventListener('click', () => setDisplayMode('tank'));
 document.getElementById('mobile-sidebar-toggle').addEventListener('click', toggleMobileSidebar);
@@ -955,6 +1183,7 @@ tryFetchJson('prices_latest.json')
 initMap();
 locateMe(true);
 syncMobileSidebarState();
+updateDrawerSummary();
 </script>
 </body>
 </html>
