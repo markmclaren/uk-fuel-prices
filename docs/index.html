@@ -36,24 +36,24 @@
     html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 15px; -webkit-font-smoothing: antialiased; overflow-x: hidden; -webkit-text-size-adjust: 100%; }
     #app { display: grid; grid-template-columns: minmax(0, 440px) minmax(0, 1fr); grid-template-rows: 100vh; height: 100vh; min-height: 100dvh; width: 100%; overflow: hidden; }
     #sidebar { background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
-    /* ── Mobile panel toggle (bottom-left, away from map controls) ── */
+    /* ── Mobile panel toggle (shown on map when sidebar is minimized) ── */
     .mobile-sidebar-toggle {
       position: fixed;
       bottom: 20px;
       left: 50%;
       transform: translateX(-50%);
       z-index: 1000;
-      min-height: 48px;
-      padding: 10px 22px;
+      min-height: 44px;
+      padding: 9px 20px;
       border: 1px solid var(--border-bright);
       border-radius: 999px;
       background: rgba(22, 27, 34, 0.95);
       color: var(--text);
       font: inherit;
-      font-size: 0.88rem;
+      font-size: 0.84rem;
       font-weight: 600;
       cursor: pointer;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(88,166,255,0.1);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(88,166,255,0.15);
       transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
@@ -66,56 +66,108 @@
       box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 0 3px var(--accent-glow);
     }
     .mobile-sidebar-toggle:active { opacity: 0.85; }
-    /* drag-handle hint at top of sidebar on mobile */
+    /* drag-handle hint at top of sidebar on mobile (tappable to toggle) */
     .sidebar-drag-handle {
       display: none;
-      width: 40px;
+      width: 42px;
       height: 4px;
       background: var(--border-bright);
       border-radius: 2px;
-      margin: 10px auto 4px;
+      margin: 8px auto 4px;
       flex-shrink: 0;
+      cursor: pointer;
+      transition: background 0.15s;
     }
-    #sidebar-header { padding: 12px 20px 10px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-    .logo-row { display: flex; align-items: center; gap: 10px; }
-    .logo-icon { width: 28px; height: 28px; background: linear-gradient(135deg, #58a6ff, #3fb950); border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
-    h1 { font-size: 1rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--green)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-    /* compact data-status bar */
-    #data-status { display: none; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 6px; background: var(--surface2); border: 1px solid var(--border); font-size: 0.72rem; color: var(--text-muted); overflow: hidden; cursor: pointer; position: relative; transition: border-color 0.15s; }
-    #data-status:hover { border-color: var(--accent); }
-    #data-status input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
-    #data-status.loaded { color: var(--green); border-color: rgba(63,185,80,0.35); background: rgba(63,185,80,0.06); }
-    #data-status-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
-    #controls { padding: 10px 16px 10px; border-bottom: 1px solid var(--border); flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; max-height: 48vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-    .control-row { display: flex; flex-wrap: wrap; gap: 8px; }
-    .control-row.row, .loc-row.row { margin-right: 0; margin-left: 0; }
-    .control-row.row > [class^="col"], .control-row.row > [class*=" col"], .loc-row.row > [class^="col"], .loc-row.row > [class*=" col"] {
-      padding-right: 0;
-      padding-left: 0;
+    .sidebar-drag-handle:hover { background: var(--accent); }
+    #sidebar-header {
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
     }
-    .field { display: flex; flex-direction: column; gap: 4px; }
-    .field.full { width: 100%; }
-    label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
-    .input-wrap { position: relative; display: flex; align-items: center; }
-    input[type="number"], input[type="text"], select { width: 100%; min-height: 40px; background: var(--surface2); border: 1px solid var(--border-bright); border-radius: var(--radius-sm); color: var(--text); font-family: inherit; font-size: 0.85rem; padding: 8px 10px; outline: none; transition: border-color 0.15s, box-shadow 0.15s; -moz-appearance: textfield; }
-    input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; }
-    input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--accent); }
-    input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
-    select { cursor: pointer; }
-    .unit { position: absolute; right: 10px; font-size: 0.72rem; color: var(--text-muted); pointer-events: none; }
-    input.has-unit { padding-right: 44px; }
-    .upload-zone { display: none; }
+    .logo-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .logo-icon { width: 22px; height: 22px; background: linear-gradient(135deg, #58a6ff, #3fb950); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+    h1 { font-size: 0.88rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--green)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin: 0; white-space: nowrap; }
+    /* compact data-status pill in header */
+    .data-status-badge {
+      display: none;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      overflow: hidden;
+      cursor: pointer;
+      position: relative;
+      white-space: nowrap;
+      transition: border-color 0.15s, background 0.15s, color 0.15s;
+    }
+    .data-status-badge:hover { border-color: var(--accent); color: var(--text); }
+    .data-status-badge input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+    .data-status-badge.loaded { color: var(--green); border-color: rgba(63,185,80,0.35); background: rgba(63,185,80,0.08); }
+    #data-status-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-    #btn-locate {
-      flex-shrink: 0;
-      min-height: 28px;
-      padding: 2px 10px;
+    /* Minimize to map button in header (mobile only) */
+    .mobile-close-btn {
+      display: none;
+      align-items: center;
+      gap: 4px;
       background: var(--surface2);
       border: 1px solid var(--border-bright);
       border-radius: var(--radius-sm);
       color: var(--text);
       font-family: inherit;
       font-size: 0.74rem;
+      font-weight: 600;
+      padding: 3px 8px;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .mobile-close-btn:hover { background: var(--surface3); border-color: var(--accent); }
+
+    #controls { padding: 8px 14px 8px; border-bottom: 1px solid var(--border); flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; max-height: 48vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .control-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .control-row.row, .loc-row.row { margin-right: 0; margin-left: 0; }
+    .control-row.row > [class^="col"], .control-row.row > [class*=" col"], .loc-row.row > [class^="col"], .loc-row.row > [class*=" col"] {
+      padding-right: 0;
+      padding-left: 0;
+    }
+    .field { display: flex; flex-direction: column; gap: 3px; }
+    .field.full { width: 100%; }
+    label { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+    .input-wrap { position: relative; display: flex; align-items: center; }
+    input[type="number"], input[type="text"], select { width: 100%; min-height: 36px; background: var(--surface2); border: 1px solid var(--border-bright); border-radius: var(--radius-sm); color: var(--text); font-family: inherit; font-size: 0.84rem; padding: 6px 8px; outline: none; transition: border-color 0.15s, box-shadow 0.15s; -moz-appearance: textfield; }
+    input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; }
+    input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
+    input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+    select { cursor: pointer; }
+    .unit { position: absolute; right: 8px; font-size: 0.7rem; color: var(--text-muted); pointer-events: none; }
+    input.has-unit { padding-right: 40px; }
+    .upload-zone { display: none; }
+
+    .loc-search-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+    }
+    #btn-locate {
+      flex-shrink: 0;
+      min-height: 32px;
+      padding: 0 9px;
+      background: var(--surface2);
+      border: 1px solid var(--border-bright);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.76rem;
       font-weight: 500;
       cursor: pointer;
       display: inline-flex;
@@ -125,33 +177,58 @@
       white-space: nowrap;
     }
     #btn-locate:hover { border-color: var(--accent); background: var(--accent-glow); }
-
+    .loc-display {
+      flex: 1;
+      min-width: 0;
+      min-height: 32px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.74rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      user-select: none;
+    }
+    .loc-display.has-coords {
+      color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.72rem;
+      letter-spacing: -0.02em;
+    }
     #btn-search {
-      width: 100%;
-      min-height: 40px;
-      padding: 8px 12px;
+      flex-shrink: 0;
+      min-height: 32px;
+      width: auto;
+      padding: 0 12px;
       background: linear-gradient(135deg, #1f6feb, #238636);
       border: none;
       border-radius: var(--radius-sm);
       color: #fff;
       font-family: inherit;
-      font-size: 0.88rem;
+      font-size: 0.8rem;
       font-weight: 600;
       cursor: pointer;
       letter-spacing: 0.02em;
+      white-space: nowrap;
       transition: opacity 0.15s, transform 0.1s;
     }
     #btn-search:hover { opacity: 0.9; }
     #btn-search:active { transform: scale(0.98); }
     #btn-search:disabled { opacity: 0.4; cursor: not-allowed; }
 
-    /* ── Options Drawer (Radius, MPG, Tank, Filters) ── */
+    /* ── Options Drawer (Fuel Type, Radius, MPG, Tank, Filters) ── */
     .options-drawer {
       background: var(--surface2);
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
       transition: border-color 0.15s, background 0.15s;
-      margin-top: 2px;
+      margin-top: 1px;
     }
     .options-drawer[open] {
       border-color: var(--border-bright);
@@ -163,10 +240,10 @@
       align-items: center;
       justify-content: space-between;
       gap: 8px;
-      padding: 7px 10px;
+      padding: 6px 9px;
       cursor: pointer;
       user-select: none;
-      font-size: 0.78rem;
+      font-size: 0.76rem;
       color: var(--text-muted);
       transition: color 0.15s, background 0.15s;
     }
@@ -175,7 +252,7 @@
     .summary-label {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
       font-weight: 600;
       color: var(--text);
       white-space: nowrap;
@@ -190,21 +267,21 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      max-width: 175px;
+      max-width: 220px;
     }
     .summary-chevron {
-      font-size: 0.75rem;
+      font-size: 0.72rem;
       transition: transform 0.2s ease;
       color: var(--text-muted);
       flex-shrink: 0;
     }
     .options-drawer[open] .summary-chevron { transform: rotate(180deg); }
     .drawer-body {
-      padding: 10px 10px 12px;
+      padding: 8px 10px 10px;
       border-top: 1px solid var(--border);
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
     }
     .filter-check-label {
       display: flex;
@@ -212,21 +289,18 @@
       gap: 8px;
       cursor: pointer;
       text-transform: none;
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       color: var(--text);
       font-weight: 500;
     }
-    .field-val-highlight { color: var(--accent); font-weight: 700; font-size: 0.75rem; }
+    .field-val-highlight { color: var(--accent); font-weight: 700; font-size: 0.74rem; }
 
-    .sort-bar { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 16px; flex-shrink: 0; border-bottom: 1px solid var(--border); }
-    .sort-btn { flex: 1 1 80px; min-height: 32px; padding: 4px 6px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); font-family: inherit; font-size: 0.72rem; font-weight: 500; cursor: pointer; text-align: center; transition: all 0.15s; }
-    .sort-btn.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
-    #results-header { padding: 10px 16px 8px; flex-shrink: 0; }
+    #results-header { padding: 8px 14px 6px; flex-shrink: 0; }
     #result-count { font-size: 0.78rem; color: var(--text-muted); }
-    .unit-btn { min-height: 30px; padding: 2px 7px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); font-family: inherit; font-size: 0.72rem; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+    .unit-btn { min-height: 26px; padding: 2px 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); font-family: inherit; font-size: 0.72rem; font-weight: 500; cursor: pointer; transition: all 0.15s; }
     .unit-btn.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
 
-    .preset-btn { min-height: 30px; padding: 2px 7px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); font-family: inherit; font-size: 0.68rem; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+    .preset-btn { min-height: 28px; padding: 2px 7px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); font-family: inherit; font-size: 0.68rem; font-weight: 600; cursor: pointer; transition: all 0.15s; }
     .preset-btn:hover { border-color: var(--accent); color: var(--text); }
     .preset-btn.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
     input[type="range"] { accent-color: var(--accent); height: 5px; border-radius: 3px; background: var(--surface2); outline: none; }
@@ -237,13 +311,13 @@
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
       overscroll-behavior: contain;
-      padding: 0 12px 16px;
+      padding: 0 10px 14px;
     }
     #results::-webkit-scrollbar { width: 5px; }
     #results::-webkit-scrollbar-track { background: transparent; }
     #results::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
 
-    /* ── Table layout ── */
+    /* ── Table layout & interactive sort headers ── */
     .table-wrap {
       width: 100%;
       overflow-x: auto;
@@ -254,7 +328,7 @@
     }
     .data-table {
       width: 100%;
-      min-width: 320px;
+      min-width: 310px;
       border-collapse: collapse;
       font-size: 0.8rem;
       text-align: left;
@@ -265,22 +339,27 @@
       z-index: 2;
       background: var(--surface3);
       color: var(--text-muted);
-      padding: 8px 10px;
+      padding: 8px 8px;
       font-weight: 600;
       text-align: left;
       cursor: pointer;
       border-bottom: 1px solid var(--border-bright);
       user-select: none;
-      font-size: 0.7rem;
+      font-size: 0.72rem;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
+      letter-spacing: 0.04em;
       transition: color 0.15s, background 0.15s;
       white-space: nowrap;
     }
     .data-table th:hover { color: var(--text); background: var(--surface2); }
-    .data-table th.active-th { color: var(--accent); background: rgba(88,166,255,0.08); }
+    .data-table th.active-th { color: var(--accent); background: rgba(88,166,255,0.08); border-bottom-color: var(--accent); }
+    .data-table th .th-wrap { display: inline-flex; align-items: center; gap: 4px; }
+    .data-table th.num-col .th-wrap { justify-content: flex-end; width: 100%; }
+    .data-table th .sort-indicator { font-size: 0.72rem; opacity: 0.4; }
+    .data-table th.active-th .sort-indicator { opacity: 1; color: var(--accent); font-weight: 700; }
+
     .data-table th.num-col, .data-table td.num-col { text-align: right; white-space: nowrap; }
-    .data-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .data-table td { padding: 8px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
     .data-table tr { cursor: pointer; transition: background 0.15s; }
     .data-table tr:hover { background: var(--surface3); }
     .data-table tr.selected { background: var(--surface3); outline: 1px solid var(--accent); }
@@ -295,53 +374,9 @@
     .data-table tr.status-not-worth { background: rgba(248, 81, 73, 0.04); }
     .data-table tr.status-nearest { background: rgba(88, 166, 255, 0.04); }
 
-    /* View modes: Table is default; user can toggle to Cards */
-    .view-table-active .table-wrap { display: block !important; }
-    .view-table-active .card-list { display: none !important; }
-    .view-cards-active .table-wrap { display: none !important; }
-    .view-cards-active .card-list { display: flex !important; }
-
-    /* ── Mobile result cards ── */
-    .card-list { display: none; flex-direction: column; gap: 8px; }
-    .station-card {
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 12px 14px;
-      cursor: pointer;
-      transition: background 0.15s, border-color 0.15s;
-      position: relative;
-      overflow: hidden;
-    }
-    .station-card::before {
-      content: '';
-      position: absolute;
-      left: 0; top: 0; bottom: 0;
-      width: 4px;
-    }
-    .station-card.status-worth-it::before  { background: var(--green); }
-    .station-card.status-breakeven::before { background: var(--amber); }
-    .station-card.status-not-worth::before { background: var(--red); }
-    .station-card.status-nearest::before   { background: var(--accent); }
-    .station-card.status-worth-it  { background: rgba(63,185,80,0.05); }
-    .station-card.status-breakeven { background: rgba(210,153,34,0.05); }
-    .station-card.status-not-worth { background: rgba(248,81,73,0.05); }
-    .station-card.status-nearest   { background: rgba(88,166,255,0.05); }
-    .station-card.selected { border-color: var(--accent); background: rgba(88,166,255,0.08); }
-    .station-card:active { opacity: 0.85; }
-    .card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
-    .card-name { font-weight: 600; font-size: 0.88rem; line-height: 1.3; flex: 1; }
-    .card-brand { font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
-    .card-dist { font-size: 0.78rem; color: #a5d6ff; white-space: nowrap; }
-    .card-prices { display: flex; gap: 12px; }
-    .card-price-block { display: flex; flex-direction: column; gap: 1px; }
-    .card-price-label { font-size: 0.63rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
-    .card-price-main { font-size: 1rem; font-weight: 700; line-height: 1; }
-    .card-price-sub { font-size: 0.68rem; color: var(--text-muted); margin-top: 2px; }
-
-    .state-msg { text-align: center; padding: 40px 20px; color: var(--text-muted); font-size: 0.85rem; line-height: 1.7; }
-    .state-msg .icon { font-size: 2.5rem; margin-bottom: 12px; }
-    .state-msg strong { display: block; color: var(--text); margin-bottom: 6px; font-size: 0.95rem; }
+    .state-msg { text-align: center; padding: 36px 16px; color: var(--text-muted); font-size: 0.84rem; line-height: 1.6; }
+    .state-msg .icon { font-size: 2.2rem; margin-bottom: 10px; }
+    .state-msg strong { display: block; color: var(--text); margin-bottom: 5px; font-size: 0.92rem; }
     #map { width: 100%; height: 100%; }
     .maplibregl-popup-content { background: var(--surface2) !important; border: 1px solid var(--border-bright) !important; border-radius: var(--radius-sm) !important; color: var(--text) !important; box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important; padding: 12px 14px !important; font-family: 'Inter', sans-serif !important; min-width: 200px; }
     .maplibregl-popup-tip { display: none !important; }
@@ -357,16 +392,16 @@
     @media (max-width: 991.98px) {
       #app {
         grid-template-columns: 1fr;
-        grid-template-rows: minmax(30vh, 1fr) auto;
+        grid-template-rows: minmax(28vh, 1fr) auto;
         height: 100dvh;
         overflow: hidden;
       }
-      #map { min-height: 30vh; height: 100%; order: -1; }
+      #map { min-height: 28vh; height: 100%; order: -1; }
       #sidebar {
         border-right: 0;
         border-top: 1px solid var(--border);
-        height: 65vh;
-        max-height: 68vh;
+        height: 68vh;
+        max-height: 72vh;
         display: flex;
         flex-direction: column;
         overflow: hidden;
@@ -375,25 +410,29 @@
       #app.sidebar-hidden { grid-template-rows: 1fr 0; }
       #app.sidebar-hidden #sidebar { height: 0; max-height: 0; overflow: hidden; border-top: 0; }
       .sidebar-drag-handle { display: block; }
-      #controls { max-height: 46vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-      #results { flex: 1; min-height: 0; overflow-y: auto; }
+      .mobile-close-btn { display: inline-flex; }
+      /* Hide the floating toggle when sidebar is open so it NEVER obscures the table */
+      #app:not(.sidebar-hidden) .mobile-sidebar-toggle { display: none !important; }
+      #controls { max-height: 42vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+      #results { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 14px; }
     }
-    /* Desktop: hide toggle */
+    /* Desktop: hide mobile elements */
     @media (min-width: 992px) {
-      .mobile-sidebar-toggle { display: none; }
-      .sidebar-drag-handle { display: none; }
+      .mobile-sidebar-toggle { display: none !important; }
+      .sidebar-drag-handle { display: none !important; }
+      .mobile-close-btn { display: none !important; }
     }
     /* ── Phone (< 576px) ── */
     @media (max-width: 575.98px) {
-      #sidebar-header, #controls, .sort-bar, #results-header { padding-left: 10px; padding-right: 10px; }
-      #controls { gap: 8px; }
-      #results { padding: 0 8px 80px; } /* bottom pad for toggle button */
-      .data-table th, .data-table td { padding: 7px 6px; }
-      .data-table { min-width: 310px; font-size: 0.76rem; }
+      #sidebar-header, #controls, #results-header { padding-left: 8px; padding-right: 8px; }
+      #results { padding: 0 6px 12px; }
+      .data-table th, .data-table td { padding: 6px 4px; }
+      .data-table { min-width: 290px; font-size: 0.74rem; }
       /* Prevent iOS auto-zoom on focus */
-      input[type="number"], input[type="text"], select { font-size: 16px; }
-      #btn-search { min-height: 40px; font-size: 0.88rem; }
-      #btn-locate { min-height: 28px; font-size: 0.74rem; }
+      input[type="number"], input[type="text"], select { font-size: 16px; min-height: 32px; }
+      #btn-search { min-height: 32px; font-size: 0.78rem; padding: 0 10px; }
+      #btn-locate { min-height: 32px; font-size: 0.72rem; padding: 0 8px; }
+      .loc-display { min-height: 32px; font-size: 0.7rem; }
     }
   </style>
 </head>
@@ -406,70 +445,53 @@
     aria-controls="sidebar"
     aria-expanded="false"
     aria-label="Show filters and station list"
-  >⛽ Show panel</button>
+  >⛽ Results & Filters</button>
   <div id="sidebar">
-    <div class="sidebar-drag-handle" aria-hidden="true"></div>
+    <div class="sidebar-drag-handle" id="sidebar-drag-handle" aria-label="Toggle panel" role="button" tabindex="0"></div>
     <div id="sidebar-header">
       <div class="logo-row">
         <div class="logo-icon">⛽</div>
         <h1>True Cost Fuel Finder</h1>
+        <div id="data-status" class="data-status-badge" role="button" aria-label="Change price data file" title="Click to load a different JSON file">
+          <input type="file" id="file-input" accept=".json" aria-label="Load prices JSON file">
+          <span id="data-status-text">⏳ Loading…</span>
+        </div>
       </div>
+      <button type="button" id="btn-minimize-panel" class="mobile-close-btn" aria-label="Minimize panel to map">
+        <span>🗺️ Map</span>
+      </button>
     </div>
     <div id="controls">
-      <!-- Compact data status bar (shown once data loads; clickable to change file) -->
-      <div id="data-status" role="button" aria-label="Change price data file" title="Click to load a different file">
-        <input type="file" id="file-input" accept=".json" aria-label="Load prices JSON file">
-        <span id="data-status-text">⏳ Loading price data…</span>
+      <!-- Location & Search bar (No manual text entry: use Locate Me or tap map) -->
+      <div class="loc-search-row">
+        <button id="btn-locate" type="button" title="Use current GPS location" aria-label="Detect my location">📍 Locate me</button>
+        <div id="loc-display" class="loc-display" title="Location set by GPS or map tap">Tap map or locate</div>
+        <button id="btn-search" disabled>Find Fuel</button>
       </div>
 
-      <!-- Location row: Lat / Lon side by side with compact Locate Me button -->
-      <div class="field full">
-        <div class="d-flex justify-content-between align-items-center mb-1">
-          <label for="lat">Location <span class="d-none d-sm-inline" style="text-transform:none;font-weight:400;color:var(--text-muted);">(or tap map)</span></label>
-          <button id="btn-locate" type="button" title="Use current GPS location" aria-label="Detect my location">📍 Locate me</button>
-        </div>
-        <div class="row g-2">
-          <div class="field col-6">
-            <div class="input-wrap">
-              <input type="number" id="lat" placeholder="Latitude" step="any" aria-label="Latitude">
-            </div>
-          </div>
-          <div class="field col-6">
-            <div class="input-wrap">
-              <input type="number" id="lon" placeholder="Longitude" step="any" aria-label="Longitude">
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Fuel Type + Search Button side-by-side -->
-      <div class="row g-2 align-items-end">
-        <div class="field col-7 col-sm-8">
-          <label for="fuel-type">Fuel Type</label>
-          <select id="fuel-type" aria-label="Fuel type">
-            <option value="E10">E10 (Petrol)</option>
-            <option value="E5">E5 (Premium Petrol)</option>
-            <option value="B7_STANDARD">B7 (Diesel)</option>
-            <option value="B7_PREMIUM">B7 Premium</option>
-            <option value="HVO">HVO</option>
-          </select>
-        </div>
-        <div class="field col-5 col-sm-4">
-          <button id="btn-search" class="w-100" disabled>Find Fuel</button>
-        </div>
-      </div>
-
-      <!-- Hidden drawer by default for radius, MPG, tank size, and filters -->
+      <!-- Hidden drawer by default for fuel type, radius, MPG, tank size, and filters -->
       <details class="options-drawer" id="options-drawer">
         <summary class="options-summary">
           <span class="summary-label">
             <span class="summary-icon">⚙️</span>
             <span>Options</span>
           </span>
-          <span class="summary-badge" id="options-summary-badge">15 km · 40 mpg · 40 L</span>
+          <span class="summary-badge" id="options-summary-badge">E10 · 15 km · 40 mpg · 40 L</span>
           <span class="summary-chevron" aria-hidden="true">▾</span>
         </summary>
         <div class="drawer-body">
+          <!-- Fuel Type inside Options defaulting to E10 -->
+          <div class="field">
+            <label for="fuel-type">Fuel Type</label>
+            <select id="fuel-type" aria-label="Fuel type">
+              <option value="E10" selected>E10 (Petrol)</option>
+              <option value="E5">E5 (Premium Petrol)</option>
+              <option value="B7_STANDARD">B7 (Diesel)</option>
+              <option value="B7_PREMIUM">B7 Premium</option>
+              <option value="HVO">HVO</option>
+            </select>
+          </div>
+
           <!-- Search Radius -->
           <div class="field">
             <div class="d-flex justify-content-between align-items-center mb-1">
@@ -524,24 +546,12 @@
         </div>
       </details>
     </div>
-    <div class="sort-bar" id="sort-bar" style="display:none;">
-      <button class="sort-btn active" id="sort-effective" aria-pressed="true">&#8597; True Cost</button>
-      <button class="sort-btn" id="sort-pump" aria-pressed="false">&#8597; Pump Price</button>
-      <button class="sort-btn" id="sort-distance" aria-pressed="false">&#8597; Distance</button>
-    </div>
     <div id="results-header" style="display:none;">
-      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+      <div class="d-flex justify-content-between align-items-center">
         <div id="result-count"></div>
-        <div class="d-flex flex-wrap gap-1 align-items-center">
-          <div class="btn-group-toggle d-flex gap-1" role="group" aria-label="View format">
-            <button class="unit-btn active" id="view-mode-table" title="Sortable table view">▤ Table</button>
-            <button class="unit-btn" id="view-mode-cards" title="Cards view">🗂 Cards</button>
-          </div>
-          <span style="color:var(--border-bright);margin:0 2px;">|</span>
-          <div class="btn-group-toggle d-flex gap-1" role="group" aria-label="Price format">
-            <button class="unit-btn active" id="unit-tank" title="Show total price for a full tank in pounds">Full Tank (£)</button>
-            <button class="unit-btn" id="unit-pence" title="Show price in pence per litre">p/L</button>
-          </div>
+        <div class="btn-group-toggle d-flex gap-1" role="group" aria-label="Price format">
+          <button class="unit-btn active" id="unit-tank" title="Show total price for a full tank in pounds">Full Tank (£)</button>
+          <button class="unit-btn" id="unit-pence" title="Show price in pence per litre">p/L</button>
         </div>
       </div>
     </div>
@@ -566,31 +576,21 @@ let currentAugmented = [];
 let sortMode = 'effective';
 let sortOrder = 'asc';
 let displayMode = 'tank'; // 'tank' or 'pence'
-let currentView = 'table'; // 'table' or 'cards'
 let selectedId = null;
 let map = null;
 let popup = null;
 let isSidebarHiddenOnMobile = true; // map-first on mobile by default
 const mobileSidebarQuery = window.matchMedia('(max-width: 991.98px)');
 
-function setViewMode(view) {
-  currentView = view;
-  const container = document.getElementById('results');
-  if (container) {
-    container.classList.toggle('view-table-active', view === 'table');
-    container.classList.toggle('view-cards-active', view === 'cards');
-  }
-  document.getElementById('view-mode-table')?.classList.toggle('active', view === 'table');
-  document.getElementById('view-mode-cards')?.classList.toggle('active', view === 'cards');
-}
-
 function updateDrawerSummary() {
+  const fuel = document.getElementById('fuel-type')?.value || 'E10';
+  const fuelLabel = fuel === 'B7_STANDARD' ? 'B7' : fuel === 'B7_PREMIUM' ? 'B7 Prem' : fuel;
   const r = document.getElementById('radius')?.value || 15;
   const mpg = document.getElementById('mpg')?.value || 40;
   const tank = document.getElementById('tank')?.value || 40;
   const costco = document.getElementById('exclude-costco')?.checked ?? true;
   const motorway = document.getElementById('exclude-motorway')?.checked ?? true;
-  const parts = [r + ' km', mpg + ' mpg', tank + ' L'];
+  const parts = [fuelLabel, r + ' km', mpg + ' mpg', tank + ' L'];
   if (!costco) parts.push('+Costco');
   if (!motorway) parts.push('+Motorway');
   const badge = document.getElementById('options-summary-badge');
@@ -603,8 +603,9 @@ function syncMobileSidebarState() {
   const hidden = mobileSidebarQuery.matches && isSidebarHiddenOnMobile;
   app.classList.toggle('sidebar-hidden', hidden);
   toggle.setAttribute('aria-expanded', String(!hidden));
+  const countStr = results.length ? ' (' + results.length + ')' : '';
   toggle.setAttribute('aria-label', hidden ? 'Show filters and station list' : 'Hide filters and station list');
-  toggle.innerHTML = hidden ? '⛽ Show panel' : '✕ Hide panel';
+  toggle.innerHTML = '⛽ Results & Filters' + countStr;
   requestAnimationFrame(() => map?.resize());
 }
 
@@ -699,34 +700,29 @@ function getSaving(s, baselineEffective, tankL) {
 }
 
 function getThArrow(colMode) {
-  if (sortMode !== colMode) return '';
-  return sortOrder === 'asc' ? ' ▲' : ' ▼';
+  if (sortMode !== colMode) return '<span class="sort-indicator">↕</span>';
+  return '<span class="sort-indicator">' + (sortOrder === 'asc' ? '▲' : '▼') + '</span>';
 }
 
 function renderResults() {
   const container = document.getElementById('results');
-  const sortBar = document.getElementById('sort-bar');
   const header = document.getElementById('results-header');
   const countEl = document.getElementById('result-count');
   const tankL = parseFloat(document.getElementById('tank').value) || 40;
 
   if (!myLat || !myLon) {
-    sortBar.style.display = 'none';
     header.style.display = 'none';
     container.innerHTML = '<div class="state-msg"><div class="icon">📍</div><strong>Set your location</strong>Click "📍 Locate me" above or click anywhere on the map to find cheap fuel near you.</div>';
     return;
   }
 
   if (!results.length) {
-    sortBar.style.display = 'none';
     header.style.display = 'none';
     container.innerHTML = '<div class="state-msg"><div class="icon">⛽</div><strong>No stations found</strong>Try increasing the search radius or changing the fuel type.</div>';
     return;
   }
 
-  sortBar.style.display = 'flex';
   header.style.display = 'block';
-  updateSortButtons();
 
   const nearest = [...results].sort((a,b) => a.distKm - b.distKm)[0];
   const baselineEffective = nearest.effectivePrice;
@@ -775,57 +771,26 @@ function renderResults() {
     '</tr>';
   }).join('');
 
-  // Mobile cards (shown instead of table on narrow screens)
-  let cardsHtml = augmented.map(s => {
-    const isSel = s.id === selectedId;
-    const pumpMain = isTank ? fmt_tank(s.pumpPrice, tankL) : fmt_p(s.pumpPrice);
-    const pumpSub  = isTank ? fmt_p(s.pumpPrice) : fmt_tank(s.pumpPrice, tankL);
-    const effMain  = isTank ? fmt_tank(s.effectivePrice, tankL) : fmt_p(s.effectivePrice);
-    const effSub   = isTank ? fmt_p(s.effectivePrice) : fmt_tank(s.effectivePrice, tankL);
-    return '<div class="station-card ' + s.statusClass + (isSel ? ' selected' : '') + '" data-id="' + escHtml(s.id) + '" data-lat="' + s.lat + '" data-lon="' + s.lon + '" role="button" tabindex="0">' +
-      '<div class="card-top">' +
-        '<div><div class="card-name">' + escHtml(s.name) + '</div><div class="card-brand">' + escHtml(s.brand) + '</div></div>' +
-        '<div class="card-dist">' + fmt_mi(s.distMiles) + '</div>' +
-      '</div>' +
-      '<div class="card-prices">' +
-        '<div class="card-price-block"><span class="card-price-label">Pump</span><span class="card-price-main">' + pumpMain + '</span><span class="card-price-sub">' + pumpSub + '</span></div>' +
-        '<div class="card-price-block"><span class="card-price-label">True Cost</span><span class="card-price-main" style="color:var(--green)">' + effMain + '</span><span class="card-price-sub">' + effSub + '</span></div>' +
-      '</div>' +
-    '</div>';
-  }).join('');
-
-  const pumpHeaderStr = isTank ? 'Pump Tank' : 'Pump';
+  const pumpHeaderStr = isTank ? 'Pump Tank' : 'Pump Price';
   const effHeaderStr  = isTank ? 'True Tank' : 'True Cost';
 
   container.innerHTML =
-    '<div class="table-wrap"><table class="data-table"><thead><tr>' +
-    '<th onclick="setSortMode(\'name\')" class="' + (sortMode === 'name' ? 'active-th' : '') + '">Station' + getThArrow('name') + '</th>' +
-    '<th onclick="setSortMode(\'pump\')" class="num-col ' + (sortMode === 'pump' ? 'active-th' : '') + '">' + pumpHeaderStr + getThArrow('pump') + '</th>' +
-    '<th onclick="setSortMode(\'effective\')" class="num-col ' + (sortMode === 'effective' ? 'active-th' : '') + '">' + effHeaderStr + getThArrow('effective') + '</th>' +
-    '<th onclick="setSortMode(\'distance\')" class="num-col ' + (sortMode === 'distance' ? 'active-th' : '') + '">Distance' + getThArrow('distance') + '</th>' +
-    '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
-    '<div class="card-list">' + cardsHtml + '</div>';
-
-  container.classList.toggle('view-table-active', currentView === 'table');
-  container.classList.toggle('view-cards-active', currentView === 'cards');
+    '<div class="table-wrap"><table class="data-table" role="grid"><thead><tr>' +
+    '<th scope="col" onclick="setSortMode(\'name\')" class="' + (sortMode === 'name' ? 'active-th' : '') + '" aria-sort="' + (sortMode === 'name' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none') + '"><div class="th-wrap"><span>Station</span> ' + getThArrow('name') + '</div></th>' +
+    '<th scope="col" onclick="setSortMode(\'pump\')" class="num-col ' + (sortMode === 'pump' ? 'active-th' : '') + '" aria-sort="' + (sortMode === 'pump' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none') + '"><div class="th-wrap"><span>' + pumpHeaderStr + '</span> ' + getThArrow('pump') + '</div></th>' +
+    '<th scope="col" onclick="setSortMode(\'effective\')" class="num-col ' + (sortMode === 'effective' ? 'active-th' : '') + '" aria-sort="' + (sortMode === 'effective' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none') + '"><div class="th-wrap"><span>' + effHeaderStr + '</span> ' + getThArrow('effective') + '</div></th>' +
+    '<th scope="col" onclick="setSortMode(\'distance\')" class="num-col ' + (sortMode === 'distance' ? 'active-th' : '') + '" aria-sort="' + (sortMode === 'distance' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none') + '"><div class="th-wrap"><span>Distance</span> ' + getThArrow('distance') + '</div></th>' +
+    '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
 
   document.querySelectorAll('.data-table tbody tr').forEach(r => {
     r.addEventListener('click', () => {
       selectStation(r.dataset.id, parseFloat(r.dataset.lat), parseFloat(r.dataset.lon));
-    });
-  });
-
-  document.querySelectorAll('.station-card').forEach(c => {
-    const handler = () => {
-      selectStation(c.dataset.id, parseFloat(c.dataset.lat), parseFloat(c.dataset.lon));
-      // On mobile, selecting a station closes the panel to show the map
+      // On mobile, selecting a station minimizes the panel to show the map and station pin
       if (mobileSidebarQuery.matches) {
         isSidebarHiddenOnMobile = true;
         syncMobileSidebarState();
       }
-    };
-    c.addEventListener('click', handler);
-    c.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handler(); } });
+    });
   });
 }
 
@@ -896,9 +861,9 @@ function initMap() {
 
     map.on('click', (e) => {
       if (map.queryRenderedFeatures(e.point, { layers: ['stations-circle'] }).length > 0) return;
-      document.getElementById('lat').value = e.lngLat.lat.toFixed(6);
-      document.getElementById('lon').value = e.lngLat.lng.toFixed(6);
-      myLat = e.lngLat.lat; myLon = e.lngLat.lng;
+      myLat = e.lngLat.lat;
+      myLon = e.lngLat.lng;
+      updateLocationDisplay(myLat, myLon);
       if (priceData) runSearch();
       else updateMapSource();
     });
@@ -974,22 +939,37 @@ function selectStation(id, lat, lon) {
   }
 }
 
+function updateLocationDisplay(lat, lon) {
+  const el = document.getElementById('loc-display');
+  if (!el) return;
+  if (lat != null && lon != null) {
+    el.textContent = lat.toFixed(4) + ', ' + lon.toFixed(4);
+    el.title = 'Lat: ' + lat.toFixed(6) + ', Lon: ' + lon.toFixed(6) + ' (tap map to change)';
+    el.classList.add('has-coords');
+  } else {
+    el.textContent = 'Tap map or locate';
+    el.title = 'Click "📍 Locate me" or tap the map to choose a search location';
+    el.classList.remove('has-coords');
+  }
+}
+
 function runSearch() {
   if (!priceData) return;
-  const lat = parseFloat(document.getElementById('lat').value);
-  const lon = parseFloat(document.getElementById('lon').value);
+  if (myLat == null || myLon == null) {
+    alert('Please choose a location by tapping "📍 Locate me" or clicking on the map.');
+    return;
+  }
   const mpg = parseFloat(document.getElementById('mpg').value);
   const tankL = parseFloat(document.getElementById('tank').value);
   const radius = parseFloat(document.getElementById('radius').value);
   const fuel = document.getElementById('fuel-type').value;
   const excludeCostco = document.getElementById('exclude-costco')?.checked ?? true;
   const excludeMotorway = document.getElementById('exclude-motorway')?.checked ?? true;
-  if (isNaN(lat) || isNaN(lon) || isNaN(mpg) || isNaN(tankL) || isNaN(radius)) {
-    alert('Please fill in all fields including your location.');
+  if (isNaN(mpg) || isNaN(tankL) || isNaN(radius)) {
+    alert('Please check your vehicle economics options.');
     return;
   }
-  myLat = lat; myLon = lon;
-  results = computeResults(priceData.stations, lat, lon, fuel, mpg, tankL, radius, excludeCostco, excludeMotorway);
+  results = computeResults(priceData.stations, myLat, myLon, fuel, mpg, tankL, radius, excludeCostco, excludeMotorway);
   selectedId = null;
   popup?.remove();
   renderResults();
@@ -1000,9 +980,11 @@ function setDataStatus(label, count) {
   const el = document.getElementById('data-status');
   const text = document.getElementById('data-status-text');
   if (!el) return;
-  el.style.display = 'flex';
+  el.style.display = 'inline-flex';
   el.classList.add('loaded');
-  text.textContent = '\u2705 ' + label + (count ? ' \u00b7 ' + count.toLocaleString() + ' stations' : '');
+  const countStr = count ? (count >= 1000 ? (count / 1000).toFixed(1) + 'k' : count) + ' stns' : 'Ready';
+  text.textContent = '● ' + countStr;
+  el.title = label + (count ? ' (' + count.toLocaleString() + ' stations)' : '') + ' · Click to load JSON file';
 }
 
 function loadFile(file) {
@@ -1034,12 +1016,9 @@ function locateMe(silent = false) {
   }
   navigator.geolocation.getCurrentPosition(
     (pos) => {
-      const lat = parseFloat(pos.coords.latitude.toFixed(6));
-      const lon = parseFloat(pos.coords.longitude.toFixed(6));
-      document.getElementById('lat').value = lat;
-      document.getElementById('lon').value = lon;
-      myLat = lat;
-      myLon = lon;
+      myLat = parseFloat(pos.coords.latitude.toFixed(6));
+      myLon = parseFloat(pos.coords.longitude.toFixed(6));
+      updateLocationDisplay(myLat, myLon);
       if (btn) {
         btn.textContent = '📍 Located ✓';
         btn.disabled = false;
@@ -1065,7 +1044,6 @@ function setSortMode(mode) {
     sortMode = mode;
     sortOrder = 'asc';
   }
-  updateSortButtons();
   renderResults();
 }
 
@@ -1088,34 +1066,18 @@ function setRadius(val) {
   if (priceData && myLat && myLon) runSearch();
 }
 
-function updateSortButtons() {
-  const titles = { effective: 'True Cost', pump: 'Pump Price', distance: 'Distance' };
-  ['effective','pump','distance'].forEach(m => {
-    const btn = document.getElementById('sort-' + m);
-    if (!btn) return;
-    const isActive = m === sortMode;
-    btn.classList.toggle('active', isActive);
-    btn.setAttribute('aria-pressed', String(isActive));
-    const arrow = isActive ? (sortOrder === 'asc' ? ' ↑' : ' ↓') : ' ↕';
-    btn.textContent = titles[m] + arrow;
-  });
-}
-
 document.getElementById('file-input').addEventListener('change', (e) => loadFile(e.target.files[0]));
 document.getElementById('btn-locate').addEventListener('click', locateMe);
 document.getElementById('btn-search').addEventListener('click', runSearch);
-document.getElementById('sort-effective').addEventListener('click', () => setSortMode('effective'));
-document.getElementById('sort-pump').addEventListener('click', () => setSortMode('pump'));
-document.getElementById('sort-distance').addEventListener('click', () => setSortMode('distance'));
 
-// Drag-and-drop onto the data-status bar
+// Drag-and-drop onto the data-status badge
 const dataStatus = document.getElementById('data-status');
 dataStatus.addEventListener('dragover', (e) => { e.preventDefault(); dataStatus.style.borderColor = 'var(--accent)'; });
 dataStatus.addEventListener('dragleave', () => { dataStatus.style.borderColor = ''; });
 dataStatus.addEventListener('drop', (e) => { e.preventDefault(); dataStatus.style.borderColor = ''; loadFile(e.dataTransfer.files[0]); });
 
-['lat','lon','mpg','tank'].forEach(id => {
-  document.getElementById(id).addEventListener('keydown', (e) => { if (e.key === 'Enter' && priceData) runSearch(); });
+['mpg', 'tank'].forEach(id => {
+  document.getElementById(id)?.addEventListener('keydown', (e) => { if (e.key === 'Enter' && priceData) runSearch(); });
 });
 
 ['mpg', 'tank'].forEach(id => {
@@ -1128,6 +1090,7 @@ dataStatus.addEventListener('drop', (e) => { e.preventDefault(); dataStatus.styl
 });
 
 document.getElementById('fuel-type')?.addEventListener('change', () => {
+  updateDrawerSummary();
   if (priceData && myLat && myLon) runSearch();
 });
 
@@ -1146,11 +1109,11 @@ document.getElementById('exclude-motorway').addEventListener('change', () => {
   if (priceData && myLat && myLon) runSearch();
 });
 
-document.getElementById('view-mode-table')?.addEventListener('click', () => setViewMode('table'));
-document.getElementById('view-mode-cards')?.addEventListener('click', () => setViewMode('cards'));
 document.getElementById('unit-pence')?.addEventListener('click', () => setDisplayMode('pence'));
 document.getElementById('unit-tank')?.addEventListener('click', () => setDisplayMode('tank'));
 document.getElementById('mobile-sidebar-toggle').addEventListener('click', toggleMobileSidebar);
+document.getElementById('btn-minimize-panel')?.addEventListener('click', toggleMobileSidebar);
+document.getElementById('sidebar-drag-handle')?.addEventListener('click', toggleMobileSidebar);
 mobileSidebarQuery.addEventListener('change', syncMobileSidebarState);
 
 // Attempt to auto-fetch prices_latest.json on load for seamless experience
@@ -1168,19 +1131,19 @@ tryFetchJson('prices_latest.json')
         runSearch();
       }
     } else {
-      // Data not available: show the status bar in a neutral state so users can load manually
       const el = document.getElementById('data-status');
       const text = document.getElementById('data-status-text');
-      if (el) { el.style.display = 'flex'; text.textContent = '📂 Load price data (JSON)'; }
+      if (el) { el.style.display = 'inline-flex'; text.textContent = '📂 Load JSON'; }
     }
   })
   .catch(() => {
     const el = document.getElementById('data-status');
     const text = document.getElementById('data-status-text');
-    if (el) { el.style.display = 'flex'; text.textContent = '📂 Load price data (JSON)'; }
+    if (el) { el.style.display = 'inline-flex'; text.textContent = '📂 Load JSON'; }
   });
 
 initMap();
+updateLocationDisplay(myLat, myLon);
 locateMe(true);
 syncMobileSidebarState();
 updateDrawerSummary();
