@@ -15,6 +15,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -179,6 +180,7 @@ def request_with_retry(
 
     last_exc: Exception | None = None
     for attempt in range(retries):
+        retry_after_s: float | None = None
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return HTTPResponse(resp.status, resp.read())
@@ -188,8 +190,18 @@ def request_with_retry(
             resp_obj = HTTPResponse(e.code, body)
             if e.code == 429:
                 msg = f"Rate Limit HTTP 429: API rate limit exceeded ({body_text or 'Try again later'})"
-                raise RateLimitError(msg, response=resp_obj)
-            if e.code in (401, 403):
+                last_exc = RateLimitError(msg, response=resp_obj)
+                retry_after_header = e.headers.get("Retry-After") if e.headers else None
+                if retry_after_header:
+                    try:
+                        retry_after_s = max(0.0, float(retry_after_header))
+                    except ValueError:
+                        retry_after_s = None
+                if retry_after_s is None:
+                    m = re.search(r"try again in\s+(\d+)\s*minutes?", body_text, flags=re.IGNORECASE)
+                    if m:
+                        retry_after_s = float(m.group(1)) * 60.0
+            elif e.code in (401, 403):
                 if not body_text:
                     if e.code == 403:
                         msg = "Auth HTTP 403 Forbidden: Request blocked by CloudFront WAF (likely UK geoblocking or IP restriction on non-UK GitHub runner)"
@@ -198,9 +210,9 @@ def request_with_retry(
                 else:
                     msg = f"Auth HTTP {e.code}: {body_text}"
                 raise AuthError(msg, response=resp_obj)
-            if e.code == 404:
+            elif e.code == 404:
                 raise HTTPError("HTTP 404 Not Found", response=resp_obj)
-            if e.code in RETRYABLE_STATUS:
+            elif e.code in RETRYABLE_STATUS:
                 last_exc = HTTPError(f"Retryable HTTP {e.code}: {body_text or 'No response body'}", response=resp_obj)
             else:
                 last_msg = f"HTTP {e.code}: {body_text}" if body_text else f"HTTP {e.code}"
@@ -216,7 +228,11 @@ def request_with_retry(
         status = getattr(getattr(last_exc, "response", None), "status_code", None)
         debug_print(f"HTTP retry {attempt + 1}/{retries - 1} for {method} {url} (status={status}): {last_exc}")
         sleep_s = (backoff_base**attempt) + (backoff_jitter * (0.5 + (attempt % 3) / 3))
-        time.sleep(min(30.0, sleep_s))
+        if isinstance(last_exc, RateLimitError):
+            sleep_s = max(65.0, sleep_s, retry_after_s or 0.0)
+            time.sleep(sleep_s)
+        else:
+            time.sleep(min(30.0, sleep_s))
 
     if last_exc:
         raise last_exc
