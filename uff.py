@@ -50,6 +50,7 @@ DEFAULTS = {
     "http_backoff_base": 1.8,
     "http_backoff_jitter": 0.7,
     "batch_sleep_seconds": 4.0,
+    "baseline_phase_pause_seconds": 5.0,
     "incremental_safety_minutes": 45,
     "prices_min_coverage_ratio": 0.5,
 }
@@ -474,6 +475,7 @@ def ensure_cache(
     prices_baseline_days: int,
     prices_incremental_hours: float,
     batch_sleep_seconds: float = DEFAULTS["batch_sleep_seconds"],
+    baseline_phase_pause_seconds: float = DEFAULTS["baseline_phase_pause_seconds"],
     prices_min_coverage_ratio: float = DEFAULTS["prices_min_coverage_ratio"],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Ensure local cache is up to date via baseline or incremental API pulls."""
@@ -521,6 +523,9 @@ def ensure_cache(
         )
 
         if needs_p_base:
+            if did_stations_baseline and baseline_phase_pause_seconds > 0:
+                debug_print(f"Pause: sleeping {baseline_phase_pause_seconds:.1f}s before prices baseline refresh")
+                time.sleep(baseline_phase_pause_seconds)
             debug_print("Prices: baseline refresh required")
             items = fetch_all_batches(
                 token, "/api/v1/pfs/fuel-prices", base_url=base_url, refresh_token_fn=force_refresh_access_token, batch_sleep=batch_sleep_seconds
@@ -695,6 +700,9 @@ def main(argv: list[str] | None = None) -> int:
             prices_baseline_days=int(cfg.get("prices_baseline_days", DEFAULTS["prices_baseline_days"])),
             prices_incremental_hours=float(cfg.get("prices_incremental_hours", DEFAULTS["prices_incremental_hours"])),
             batch_sleep_seconds=float(cfg.get("batch_sleep_seconds", DEFAULTS["batch_sleep_seconds"])),
+            baseline_phase_pause_seconds=float(
+                cfg.get("baseline_phase_pause_seconds", DEFAULTS["baseline_phase_pause_seconds"])
+            ),
             prices_min_coverage_ratio=float(cfg.get("prices_min_coverage_ratio", DEFAULTS["prices_min_coverage_ratio"])),
         )
     except Exception as e:
